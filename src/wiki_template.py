@@ -86,16 +86,16 @@ class CategoryMap:
         for category, data in structure.items():
             category_lines = [f'    "{category}": {{']
             category_lines.append(f'        "title": "{data["title"]}",')
-            category_lines.append('        "subcategories": {')
 
             sub_items = [
                 f'            "{sub}": "{title}"'
                 for sub, title in data["subcategories"].items()
             ]
             if sub_items:
+                category_lines.append('        "subcategories": {')
                 category_lines.append(",\n".join(sub_items))
+                category_lines.append("        }")
 
-            category_lines.append("        }")
             category_lines.append("    }")
             entries.append("\n".join(category_lines))
 
