@@ -66,29 +66,41 @@ class CategoryMap:
         return max(depths, default=0)
 
     def __str__(self) -> str:
-        """Returns a string representation of the category map structure"""
-        lines = []
-
-        # Add root categories
-        lines.append("Root Categories:")
+        """Returns a JSON-like string representation of the category map structure"""
+        # Build combined structure
+        structure = {}
         for cat in self.root_categories:
             title = self.category_titles.get(cat, cat)
-            lines.append(f"  {cat}" + (f" -> {title}" if title != cat else ""))
+            subcats = {}
+            if cat in self.subcategory_mapping:
+                subcats = {
+                    sub: self.category_titles.get(sub, sub)
+                    for sub in self.subcategory_mapping[cat]
+                }
+            structure[cat] = {"title": title, "subcategories": subcats}
 
-        # Add categories with subcategories
-        if self.subcategory_mapping:
-            lines.append("\nCategories with subcategories:")
-            for parent, subs in self.subcategory_mapping.items():
-                parent_title = self.category_titles.get(parent, parent)
-                lines.append(
-                    f"  {parent}"
-                    + (f" -> {parent_title}" if parent_title != parent else "")
-                )
-                for sub in subs:
-                    sub_title = self.category_titles.get(sub, sub)
-                    lines.append(
-                        f"    {sub}" + (f" -> {sub_title}" if sub_title != sub else "")
-                    )
+        # Format the dictionary as a string with proper indentation
+        lines = ["{"]
+        entries = []
+
+        for category, data in structure.items():
+            category_lines = [f'    "{category}": {{']
+            category_lines.append(f'        "title": "{data["title"]}",')
+            category_lines.append('        "subcategories": {')
+
+            sub_items = [
+                f'            "{sub}": "{title}"'
+                for sub, title in data["subcategories"].items()
+            ]
+            if sub_items:
+                category_lines.append(",\n".join(sub_items))
+
+            category_lines.append("        }")
+            category_lines.append("    }")
+            entries.append("\n".join(category_lines))
+
+        lines.append(",\n".join(entries))
+        lines.append("}")
 
         return "\n".join(lines)
 
