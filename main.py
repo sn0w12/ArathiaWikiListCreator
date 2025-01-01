@@ -1,9 +1,19 @@
-from src.list_builder import CharacterListBuilder, CountryListBuilder, OathListBuilder
+from src.list_builder import (
+    CharacterListBuilder,
+    CountryListBuilder,
+    OathListBuilder,
+    SpeciesListBuilder,
+)
 import pyperclip
 
 
 def main():
-    builders = [CharacterListBuilder, CountryListBuilder, OathListBuilder]
+    builders = [
+        CharacterListBuilder,
+        CountryListBuilder,
+        OathListBuilder,
+        SpeciesListBuilder,
+    ]
     for i, builder in enumerate(builders, 1):
         print(f"{i}. {builder.__name__}")
 

@@ -112,3 +112,59 @@ class OathListBuilder:
 
     def build(self) -> str:
         return self.generic_builder.build()
+
+
+class SpeciesListBuilder:
+    def __init__(self):
+        categories = {
+            "Godly": {
+                "Chordata": {
+                    "Terrestrial Godly Species": {
+                        "Humanoid Species": {},
+                        "Mammalia": {},
+                    },
+                    "Aerial Godly Species": {
+                        "Aves": {},
+                    },
+                    "Aquatic Godly Species": {},
+                },
+                "Arthropoda": {"Polyphaga": {}},
+            },
+            "Aetherial": {
+                "Chordata": {
+                    "Terrestrial Aetherial Species": {
+                        "Humanoid Aetherial Species": {},
+                    },
+                    "Aerial Aetherial Species": {
+                        "Draconia": {},
+                    },
+                    "Aquatic Aetherial Species": {},
+                },
+                "Arthropoda": {},
+            },
+            "General Species": {},
+            "Unknown Species": {},
+        }
+        category_titles = {
+            "Unknown Species": "Unknown",
+            "Terrestrial Godly Species": "Terrestrial",
+            "Aerial Godly Species": "Aerial",
+            "Aquatic Godly Species": "Aquatic",
+            "Terrestrial Aetherial Species": "Terrestrial",
+            "Aerial Aetherial Species": "Aerial",
+            "Aquatic Aetherial Species": "Aquatic",
+            "Humanoid Species": "[[:Category:Humanoid_Species|Humanoid]] Species",
+            "Mammalia": "[[:Category:Mammalia|Mammalia]]",
+            "Aves": "[[:Category:Aves|Aves]]",
+            "Polyphaga": "[[:Category:Polyphaga|Polyphaga]]",
+            "Humanoid Aetherial Species": "[[:Category:Humanoid_Aetherial_Species|Humanoid]] Species",
+            "Draconia": "[[:Category:Draconia|Draconia]]",
+        }
+
+        category_map = CategoryMap(categories, category_titles)
+        self.generic_builder = GenericListBuilder(
+            "List of Species", "Species", category_map
+        )
+
+    def build(self) -> str:
+        return self.generic_builder.build()
