@@ -90,32 +90,43 @@ class CategoryMap:
 
     def __str__(self) -> str:
         """Returns a JSON-like string representation of the category map structure"""
-        # Build combined structure
-        structure = {}
-        for cat, data in self.categories.items():
-            title = self.category_titles.get(cat, cat)
-            subcats = {
-                sub: self.category_titles.get(sub, sub)
-                for sub in data.get("subcategories", [])
-            }
-            structure[cat] = {"title": title, "subcategories": subcats}
 
-        # Format the dictionary as a string with proper indentation
+        def format_subcategories(data: dict, indent: int = 8) -> List[str]:
+            lines = []
+            if "subcategories" not in data:
+                return lines
+
+            lines.append(" " * indent + '"subcategories": {')
+            subcats = []
+
+            for subcat, subdata in data["subcategories"].items():
+                subcat_lines = [f'{" " * (indent + 4)}"{subcat}": {{']
+                title = self.category_titles.get(subcat, subcat)
+                subcat_lines.append(f'{" " * (indent + 8)}"title": "{title}"')
+
+                sub_lines = format_subcategories(subdata, indent + 8)
+                if sub_lines:
+                    subcat_lines.extend(sub_lines)
+
+                subcat_lines.append(" " * (indent + 4) + "}")
+                subcats.append("\n".join(subcat_lines))
+
+            lines.extend([",\n".join(subcats)])
+            lines.append(" " * indent + "}")
+            return lines
+
+        # Build the main structure
         lines = ["{"]
         entries = []
 
-        for category, data in structure.items():
+        for category, data in self.categories.items():
             category_lines = [f'    "{category}": {{']
-            category_lines.append(f'        "title": "{data["title"]}",')
+            title = self.category_titles.get(category, category)
+            category_lines.append(f'        "title": "{title}"')
 
-            sub_items = [
-                f'            "{sub}": "{title}"'
-                for sub, title in data["subcategories"].items()
-            ]
-            if sub_items:
-                category_lines.append('        "subcategories": {')
-                category_lines.append(",\n".join(sub_items))
-                category_lines.append("        }")
+            subcat_lines = format_subcategories(data)
+            if subcat_lines:
+                category_lines.extend(subcat_lines)
 
             category_lines.append("    }")
             entries.append("\n".join(category_lines))
