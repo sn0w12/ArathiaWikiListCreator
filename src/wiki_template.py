@@ -7,30 +7,27 @@ from functools import partial
 class CategoryMap:
     def __init__(
         self,
-        root_categories: List[str],
-        subcategory_mapping: Dict[str, List[str]] = None,
+        categories: Dict[str, Dict[str, Optional[List[str]]]],
         category_titles: Dict[str, str] = None,
     ):
-        self.root_categories = root_categories
-        self.subcategory_mapping = subcategory_mapping or {}
+        self.categories = categories
         self.category_titles = category_titles or {}
 
     def get_mapped_category(
         self, category: str
     ) -> Tuple[str, Optional[str], Optional[str]]:
         """Returns (parent_category, subcategory, title) tuple. If no mapping exists, returns (category, None, title)"""
-        for parent_category, sub_categories in self.subcategory_mapping.items():
-            if category in sub_categories:
-                return parent_category, category, self.category_titles.get(category)
+        for parent_category, sub_data in self.categories.items():
+            for subcategory in sub_data.get("subcategories", []):
+                if category == subcategory:
+                    return parent_category, category, self.category_titles.get(category)
         return category, None, self.category_titles.get(category)
 
     def get_all_categories(self) -> Dict[str, Optional[List[str]]]:
         """Returns all categories that should exist in the output"""
-        result = {cat: None for cat in self.root_categories}
-        for parent, subs in self.subcategory_mapping.items():
-            if parent not in result:
-                result[parent] = []
-            result[parent] = subs
+        result = {}
+        for category, data in self.categories.items():
+            result[category] = data.get("subcategories", None)
         return result
 
     def get_category_title(self, category: str) -> str:
@@ -39,13 +36,13 @@ class CategoryMap:
 
     def get_max_subcategories(self) -> int:
         """Returns the maximum number of subcategories for any parent category"""
-        if not self.subcategory_mapping:
+        if not self.categories:
             return 0
-        return max(len(subcats) for subcats in self.subcategory_mapping.values())
+        return max(len(data.get("subcategories", [])) for data in self.categories.values())
 
     def get_max_category_depth(self) -> int:
         """Returns the maximum depth of nested subcategories"""
-        if not self.subcategory_mapping:
+        if not self.categories:
             return 0
 
         def get_depth(category: str, visited: set) -> int:
@@ -53,30 +50,28 @@ class CategoryMap:
                 return 0
             visited.add(category)
 
-            if category not in self.subcategory_mapping:
+            if category not in self.categories or not self.categories[category].get("subcategories"):
                 return 1
 
             subcategory_depths = [
                 get_depth(sub, visited.copy())
-                for sub in self.subcategory_mapping[category]
+                for sub in self.categories[category]["subcategories"]
             ]
             return 1 + max(subcategory_depths, default=0)
 
-        depths = [get_depth(cat, set()) for cat in self.root_categories]
+        depths = [get_depth(cat, set()) for cat in self.categories]
         return max(depths, default=0)
 
     def __str__(self) -> str:
         """Returns a JSON-like string representation of the category map structure"""
         # Build combined structure
         structure = {}
-        for cat in self.root_categories:
+        for cat, data in self.categories.items():
             title = self.category_titles.get(cat, cat)
-            subcats = {}
-            if cat in self.subcategory_mapping:
-                subcats = {
-                    sub: self.category_titles.get(sub, sub)
-                    for sub in self.subcategory_mapping[cat]
-                }
+            subcats = {
+                sub: self.category_titles.get(sub, sub)
+                for sub in data.get("subcategories", [])
+            }
             structure[cat] = {"title": title, "subcategories": subcats}
 
         # Format the dictionary as a string with proper indentation

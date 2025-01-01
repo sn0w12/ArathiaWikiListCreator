@@ -39,23 +39,23 @@ class GenericListBuilder:
 
 class CharacterListBuilder:
     def __init__(self):
-        root_categories = [
-            "Humanoid Characters",
-            "God Characters",
-            "Demigod Characters",
-            "Dragon Characters",
-        ]
-        subcategory_mapping = {
-            "Humanoid Characters": [
-                "Human Characters",
-                "Draconian Characters",
-                "Eldarin Characters",
-                "Moros Characters",
-                "Demonborn Characters",
-                "Vampire Characters",
-                "Giant Characters",
-            ]
+        categories = {
+            "Humanoid Characters": {
+                "subcategories": [
+                    "Human Characters",
+                    "Draconian Characters",
+                    "Eldarin Characters",
+                    "Moros Characters",
+                    "Demonborn Characters",
+                    "Vampire Characters",
+                    "Giant Characters",
+                ]
+            },
+            "God Characters": {},
+            "Demigod Characters": {},
+            "Dragon Characters": {},
         }
+
         category_titles = {
             "Humanoid Characters": "[[:Category:Humanoid_Species|Humanoid]] Characters",
             "God Characters": "[[God]] Characters",
@@ -69,9 +69,8 @@ class CharacterListBuilder:
             "Vampire Characters": "[[Vampire]] Characters",
             "Giant Characters": "[[Giants|Giant]] Characters",
         }
-        category_map = CategoryMap(
-            root_categories, subcategory_mapping, category_titles
-        )
+
+        category_map = CategoryMap(categories, category_titles)
         self.generic_builder = GenericListBuilder(
             "List of Characters", "Characters", category_map
         )
@@ -82,15 +81,23 @@ class CharacterListBuilder:
 
 class CountryListBuilder:
     def __init__(self):
-        root_categories = ["Arathia", "Elysium"]
-        subcategory_mapping = {
-            "Arathia": ["Major Countries", "Minor Countries", "Fallen Countries"],
-            "Elysium": [
-                "Major Elysian Countries",
-                "Minor Elysian Countries",
-                "Fallen Elysian Countries",
-            ],
+        categories = {
+            "Arathia": {
+                "subcategories": [
+                    "Major Countries",
+                    "Minor Countries",
+                    "Fallen Countries",
+                ]
+            },
+            "Elysium": {
+                "subcategories": [
+                    "Major Elysian Countries",
+                    "Minor Elysian Countries",
+                    "Fallen Elysian Countries",
+                ]
+            },
         }
+
         category_titles = {
             "Arathia": "[[Arathia]]",
             "Elysium": "[[Elysium]]",
@@ -98,9 +105,8 @@ class CountryListBuilder:
             "Minor Elysian Countries": "Minor Countries",
             "Fallen Elysian Countries": "Fallen Countries",
         }
-        category_map = CategoryMap(
-            root_categories, subcategory_mapping, category_titles
-        )
+
+        category_map = CategoryMap(categories, category_titles)
         self.generic_builder = GenericListBuilder(
             "List of Countries", "Countries", category_map
         )
@@ -111,15 +117,15 @@ class CountryListBuilder:
 
 class OathListBuilder:
     def __init__(self):
-        root_categories = [
-            "Solar Oaths",
-            "Void Oaths",
-            "Arc Oaths",
-            "Vampiric Oaths",
-            "Soulseeker Oaths",
-            "Dragon Oaths",
-        ]
-        subcategory_mapping = {}
+        categories = {
+            "Solar Oaths": {},
+            "Void Oaths": {},
+            "Arc Oaths": {},
+            "Vampiric Oaths": {},
+            "Soulseeker Oaths": {},
+            "Dragon Oaths": {},
+        }
+
         category_titles = {
             "Solar Oaths": "[[Solar]]",
             "Void Oaths": "[[Void]]",
@@ -128,9 +134,8 @@ class OathListBuilder:
             "Soulseeker Oaths": "[[Soulseeker]]",
             "Dragon Oaths": "[[Dragon (Power)|Dragon]]",
         }
-        category_map = CategoryMap(
-            root_categories, subcategory_mapping, category_titles
-        )
+
+        category_map = CategoryMap(categories, category_titles)
         self.generic_builder = GenericListBuilder(
             "List of [[Oaths]]", "Oaths", category_map
         )
