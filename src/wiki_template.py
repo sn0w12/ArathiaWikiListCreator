@@ -257,17 +257,25 @@ class WikiTemplate:
 
     def _generate_row(self, title: str, members: list, i=1, depth: int = 0):
         display_title = self.category_map.get_category_title(title)
-        row_class = 'class="custom-row"|' if i == 0 and depth != 0 else ""
+        row_classes = ["dotted-row"]
+        if i == 0 and depth != 0:
+            row_classes.append("custom-row")
+        row_class_1 = f'class="{" ".join(row_classes)}" |' if row_classes else ""
+        row_class_2 = (
+            f'class="{" ".join([c for c in row_classes if c != "dotted-row"])}" |'
+            if len(row_classes) > 1
+            else ""
+        )
         wrapped_members = [f"[[{member}]]" for member in members]
 
         max_depth = self.category_map.get_max_category_depth()
         colspan = (
             f'colspan="{max_depth - depth} "'
-            if row_class
+            if row_class_2
             else f'colspan="{max_depth - depth}"|'
         )
 
-        return f"|{row_class}{display_title}\n|{colspan}{row_class}{self.generate_member_separator().join(wrapped_members)}"
+        return f"|{row_class_1}{display_title}\n|{colspan}{row_class_2}{self.generate_member_separator().join(wrapped_members)}"
 
     def generate_subclass_row(self, title: str, members: list, i: int, depth: int = 0):
         return self._generate_row(title, members, i, depth)
