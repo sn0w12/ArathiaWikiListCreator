@@ -91,7 +91,7 @@ class CategoryMap:
             # Number of immediate subcategories
             n = len(node.get("subcategories", {}))
             # Contribution from this node
-            contrib = n if n >= 2 else 0
+            contrib = n if n >= 2 else 1
 
             # Sum contributions from children
             child_sum = 0
@@ -101,7 +101,7 @@ class CategoryMap:
                     child_sum += child_contrib - 1
             return contrib + child_sum
 
-        return max(count_splits({"subcategories": data}), 1)
+        return count_splits({"subcategories": data})
 
     def __str__(self) -> str:
         """Returns a JSON-like string representation of the category map structure"""
