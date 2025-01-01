@@ -8,48 +8,26 @@ class GenericListBuilder:
         self.template.fetch_category(category_name)
 
     def build(self) -> str:
-        output = []
-        output.append(self.template.generate_header())
-
-        categories = list(self.template.categories.items())
-        for idx, (category, members) in enumerate(categories):
-            if isinstance(members, dict):
-                output.append(
-                    self.template.generate_parent_category(category, len(members))
-                )
-                subcategories = list(members.items())
-                for sub_idx, (subcategory, sub_members) in enumerate(subcategories):
-                    output.append(
-                        self.template.generate_subclass_row(
-                            subcategory, sub_members, sub_idx
-                        )
-                    )
-                    if not (
-                        idx == len(categories) - 1 and sub_idx == len(subcategories) - 1
-                    ):
-                        output.append(self.template.generate_row_separator())
-            else:
-                output.append(self.template.generate_row(category, members))
-                if idx < len(categories) - 1:
-                    output.append(self.template.generate_row_separator())
-
-        output.append(self.template.generate_footer())
-        return "\n".join(output)
+        return self.template.build()
 
 
 class CharacterListBuilder:
     def __init__(self):
         categories = {
             "Humanoid Characters": {
-                "subcategories": [
-                    "Human Characters",
-                    "Draconian Characters",
-                    "Eldarin Characters",
-                    "Moros Characters",
-                    "Demonborn Characters",
-                    "Vampire Characters",
-                    "Giant Characters",
-                ]
+                "subcategories": {
+                    "Major Races": {
+                        "subcategories": {
+                            "Human Characters": {},
+                            "Draconian Characters": {},
+                            "Eldarin Characters": {},
+                            "Moros Characters": {},
+                        }
+                    },
+                    "Demonborn Characters": {},
+                    "Vampire Characters": {},
+                    "Giant Characters": {},
+                }
             },
             "God Characters": {},
             "Demigod Characters": {},
@@ -83,18 +61,18 @@ class CountryListBuilder:
     def __init__(self):
         categories = {
             "Arathia": {
-                "subcategories": [
-                    "Major Countries",
-                    "Minor Countries",
-                    "Fallen Countries",
-                ]
+                "subcategories": {
+                    "Major Countries": {},
+                    "Minor Countries": {},
+                    "Fallen Countries": {},
+                }
             },
             "Elysium": {
-                "subcategories": [
-                    "Major Elysian Countries",
-                    "Minor Elysian Countries",
-                    "Fallen Elysian Countries",
-                ]
+                "subcategories": {
+                    "Major Elysian Countries": {},
+                    "Minor Elysian Countries": {},
+                    "Fallen Elysian Countries": {},
+                }
             },
         }
 

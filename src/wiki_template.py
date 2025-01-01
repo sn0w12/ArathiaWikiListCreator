@@ -7,7 +7,7 @@ from functools import partial
 class CategoryMap:
     def __init__(
         self,
-        categories: Dict[str, Dict[str, Optional[List[str]]]],
+        categories: Dict[str, Dict[str, any]],
         category_titles: Dict[str, str] = None,
     ):
         self.categories = categories
@@ -17,18 +17,30 @@ class CategoryMap:
         self, category: str
     ) -> Tuple[str, Optional[str], Optional[str]]:
         """Returns (parent_category, subcategory, title) tuple. If no mapping exists, returns (category, None, title)"""
-        for parent_category, sub_data in self.categories.items():
-            for subcategory in sub_data.get("subcategories", []):
-                if category == subcategory:
-                    return parent_category, category, self.category_titles.get(category)
+
+        def search_subcategories(parent: str, data: dict, path: List[str] = []):
+            if "subcategories" not in data:
+                return None
+            for subcat, subdata in data["subcategories"].items():
+                if category == subcat:
+                    return (parent, subcat, self.category_titles.get(category))
+                result = search_subcategories(parent, subdata, path + [subcat])
+                if result:
+                    return result
+            return None
+
+        for parent_category, data in self.categories.items():
+            if category == parent_category:
+                return parent_category, None, self.category_titles.get(category)
+            result = search_subcategories(parent_category, data)
+            if result:
+                return result
+
         return category, None, self.category_titles.get(category)
 
-    def get_all_categories(self) -> Dict[str, Optional[List[str]]]:
+    def get_all_categories(self) -> Dict[str, Optional[Dict]]:
         """Returns all categories that should exist in the output"""
-        result = {}
-        for category, data in self.categories.items():
-            result[category] = data.get("subcategories", None)
-        return result
+        return self.categories
 
     def get_category_title(self, category: str) -> str:
         """Returns the display title for a category, or the category itself if no title is set"""
@@ -38,29 +50,43 @@ class CategoryMap:
         """Returns the maximum number of subcategories for any parent category"""
         if not self.categories:
             return 0
-        return max(len(data.get("subcategories", [])) for data in self.categories.values())
+        return max(
+            len(data.get("subcategories", [])) for data in self.categories.values()
+        )
 
     def get_max_category_depth(self) -> int:
         """Returns the maximum depth of nested subcategories"""
         if not self.categories:
             return 0
 
-        def get_depth(category: str, visited: set) -> int:
-            if category in visited:  # Prevent cycles
-                return 0
-            visited.add(category)
-
-            if category not in self.categories or not self.categories[category].get("subcategories"):
+        def get_depth(data: dict) -> int:
+            if "subcategories" not in data:
                 return 1
+            return 1 + max(
+                (get_depth(subdata) for subdata in data["subcategories"].values()),
+                default=0,
+            )
 
-            subcategory_depths = [
-                get_depth(sub, visited.copy())
-                for sub in self.categories[category]["subcategories"]
-            ]
-            return 1 + max(subcategory_depths, default=0)
+        return max((get_depth(data) for data in self.categories.values()), default=0)
 
-        depths = [get_depth(cat, set()) for cat in self.categories]
-        return max(depths, default=0)
+    def get_current_max_subcategories(self, data: dict) -> int:
+        """Returns the maximum number of categories in the current level"""
+        init = 0
+
+        for d in data.values():
+            if "subcategories" not in d:
+                init += 1
+
+        def get_subcategories(data: dict) -> int:
+            if "subcategories" not in data:
+                return 0
+            return len(data["subcategories"])
+
+        subcategories = max(
+            (get_subcategories(subdata) for subdata in data.values()),
+            default=0,
+        )
+        return subcategories + init
 
     def __str__(self) -> str:
         """Returns a JSON-like string representation of the category map structure"""
@@ -105,34 +131,61 @@ class WikiTemplate:
         self.title = title
         self.wiki_api = WikiAPI()
         self.rows = []
-        self.categories: Dict[str, Dict[str, List[str]] | List[str]] = {}
+        self.categories = {}
         self.category_map = category_map
 
-        # Initialize all categories from the map
-        for category, subcategories in self.category_map.get_all_categories().items():
-            if subcategories is not None:
-                self.categories[category] = {sub: [] for sub in subcategories}
-            else:
-                self.categories[category] = []
+        def initialize_category_structure(data: dict) -> dict:
+            if "subcategories" not in data:
+                return {"members": []}
+            return {
+                "subcategories": {
+                    subcat: initialize_category_structure(subdata)
+                    for subcat, subdata in data["subcategories"].items()
+                }
+            }
 
-    def _get_mapped_category(self, category: str) -> tuple[str, str, str]:
-        return self.category_map.get_mapped_category(category)
+        # Initialize all categories from the map
+        for category, data in self.category_map.get_all_categories().items():
+            self.categories[category] = initialize_category_structure(data)
+
+    def _find_category_dict(
+        self, category: str, subcategory: str | None = None
+    ) -> dict:
+        """Helper method to find the correct category dictionary in the nested structure"""
+        if subcategory is None:
+            return self.categories.setdefault(category, {"members": []})
+
+        cat_dict = self.categories.setdefault(category, {"subcategories": {}})
+        if "subcategories" not in cat_dict:
+            cat_dict["subcategories"] = {}
+
+        # Search through nested subcategories
+        def find_subcategory(data: dict, target: str) -> dict:
+            if "subcategories" in data:
+                for subcat, subdata in data["subcategories"].items():
+                    if subcat == target:
+                        if "members" not in subdata:
+                            subdata["members"] = []
+                        return subdata
+                    result = find_subcategory(subdata, target)
+                    if result:
+                        return result
+            return None
+
+        # First try to find the subcategory in the nested structure
+        result = find_subcategory(cat_dict, subcategory)
+        if result:
+            return result
+
+        # If not found in nested structure, create it at the top level
+        if subcategory not in cat_dict["subcategories"]:
+            cat_dict["subcategories"][subcategory] = {"members": []}
+        return cat_dict["subcategories"][subcategory]
 
     def _add_to_categories(self, category: str, subcategory: str | None, member: str):
-        if subcategory:
-            # Handle mapped category with subcategory
-            if category not in self.categories:
-                self.categories[category] = {}
-            if subcategory not in self.categories[category]:
-                self.categories[category][subcategory] = []
-            if member not in self.categories[category][subcategory]:
-                self.categories[category][subcategory].append(member)
-        else:
-            # Handle unmapped category
-            if category not in self.categories:
-                self.categories[category] = []
-            if member not in self.categories[category]:
-                self.categories[category].append(member)
+        target_dict = self._find_category_dict(category, subcategory)
+        if member not in target_dict["members"]:
+            target_dict["members"].append(member)
 
     def _process_member_categories(self, member: str, base_category: str):
         categories = self.wiki_api.get_page_categories(member)
@@ -156,8 +209,8 @@ class WikiTemplate:
         # Aggregate results
         for member_results in results:
             for category, member in member_results:
-                parent_category, subcategory, display_title = self._get_mapped_category(
-                    category
+                parent_category, subcategory, display_title = (
+                    self.category_map.get_mapped_category(category)
                 )
                 self._add_to_categories(parent_category, subcategory, member)
                 unCategorized.discard(member)
@@ -176,17 +229,25 @@ class WikiTemplate:
         title = self.category_map.get_category_title(category)
         return f"""|rowspan="{member_count}" class="custom-rowspan"|{title}"""
 
-    def _generate_row(self, title: str, members: list, colspan="", i=1):
+    def _generate_row(self, title: str, members: list, i=1, depth: int = 0):
         display_title = self.category_map.get_category_title(title)
-        row_class = 'class="custom-row"|' if i == 0 else ""
+        row_class = 'class="custom-row"|' if i == 0 and depth != 0 else ""
         wrapped_members = [f"[[{member}]]" for member in members]
+
+        max_depth = self.category_map.get_max_category_depth()
+        colspan = (
+            f'colspan="{max_depth - depth} "'
+            if row_class
+            else f'colspan="{max_depth - depth}"|'
+        )
+
         return f"|{row_class}{display_title}\n|{colspan}{row_class}{self.generate_member_separator().join(wrapped_members)}"
 
-    def generate_subclass_row(self, title: str, members: list, i: int):
-        return self._generate_row(title, members, "", i)
+    def generate_subclass_row(self, title: str, members: list, i: int, depth: int = 0):
+        return self._generate_row(title, members, i, depth)
 
-    def generate_row(self, title: str, members: list):
-        return self._generate_row(title, members, 'colspan="2"|')
+    def generate_row(self, title: str, members: list, depth: int = 0):
+        return self._generate_row(title, members, 0, depth)
 
     def generate_row_separator(self):
         return "|-"
@@ -196,3 +257,39 @@ class WikiTemplate:
 
     def generate_footer(self):
         return "|}"
+
+    def build(self) -> str:
+        output = []
+        output.append(self.generate_header())
+
+        def process_category(category: str, data: dict, depth: int = 0):
+            if "subcategories" in data:
+                depth += 1
+                subcats = data["subcategories"]
+                output.append(
+                    self.generate_parent_category(
+                        category,
+                        self.category_map.get_current_max_subcategories(subcats),
+                    )
+                )
+
+                for idx, (subcat, subdata) in enumerate(subcats.items()):
+                    if "subcategories" in subdata:
+                        process_category(subcat, subdata, depth)
+
+                    if "members" in subdata:
+                        output.append(
+                            self.generate_subclass_row(
+                                subcat, subdata["members"], idx, depth
+                            )
+                        )
+                        if idx < len(subcats) - 1 or depth != 0:
+                            output.append(self.generate_row_separator())
+            elif "members" in data:
+                output.append(self.generate_row(category, data["members"], depth))
+                output.append(self.generate_row_separator())
+
+        for idx, (category, data) in enumerate(self.categories.items()):
+            process_category(category, data)
+
+        return "\n".join(output[:-1] + [self.generate_footer()])
