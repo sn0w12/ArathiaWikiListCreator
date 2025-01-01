@@ -81,23 +81,27 @@ class CategoryMap:
         return max((get_depth(data) for data in self.categories.values()), default=0)
 
     def get_current_max_subcategories(self, data: dict) -> int:
-        """Returns the maximum number of categories in the current level"""
-        init = 0
+        """
+        Returns the 'row-splitting' count as described:
+        1) A node with N subcategories contributes N if N>=2, else 0
+        2) For each child that contributes > 0, add (child_contribution - 1)
+        """
 
-        for d in data.values():
-            if "subcategories" not in d:
-                init += 1
+        def count_splits(node: dict) -> int:
+            # Number of immediate subcategories
+            n = len(node.get("subcategories", {}))
+            # Contribution from this node
+            contrib = n if n >= 2 else 0
 
-        def get_subcategories(data: dict) -> int:
-            if "subcategories" not in data:
-                return 0
-            return len(data["subcategories"])
+            # Sum contributions from children
+            child_sum = 0
+            for subnode in node.get("subcategories", {}).values():
+                child_contrib = count_splits(subnode)
+                if child_contrib > 0:
+                    child_sum += child_contrib - 1
+            return contrib + child_sum
 
-        subcategories = max(
-            (get_subcategories(subdata) for subdata in data.values()),
-            default=0,
-        )
-        return subcategories + init
+        return max(count_splits({"subcategories": data}), 1)
 
     def __str__(self) -> str:
         """Returns a JSON-like string representation of the category map structure"""
