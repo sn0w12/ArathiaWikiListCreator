@@ -15,19 +15,15 @@ class CharacterListBuilder:
     def __init__(self):
         categories = {
             "Humanoid Characters": {
-                "subcategories": {
-                    "Major Races": {
-                        "subcategories": {
-                            "Human Characters": {},
-                            "Draconian Characters": {},
-                            "Eldarin Characters": {},
-                            "Moros Characters": {},
-                        }
-                    },
-                    "Demonborn Characters": {},
-                    "Vampire Characters": {},
-                    "Giant Characters": {},
-                }
+                "Major Races": {
+                    "Human Characters": {},
+                    "Draconian Characters": {},
+                    "Eldarin Characters": {},
+                    "Moros Characters": {},
+                },
+                "Demonborn Characters": {},
+                "Vampire Characters": {},
+                "Giant Characters": {},
             },
             "God Characters": {},
             "Demigod Characters": {},
@@ -61,18 +57,14 @@ class CountryListBuilder:
     def __init__(self):
         categories = {
             "Arathia": {
-                "subcategories": {
-                    "Major Countries": {},
-                    "Minor Countries": {},
-                    "Fallen Countries": {},
-                }
+                "Major Countries": {},
+                "Minor Countries": {},
+                "Fallen Countries": {},
             },
             "Elysium": {
-                "subcategories": {
-                    "Major Elysian Countries": {},
-                    "Minor Elysian Countries": {},
-                    "Fallen Elysian Countries": {},
-                }
+                "Major Elysian Countries": {},
+                "Minor Elysian Countries": {},
+                "Fallen Elysian Countries": {},
             },
         }
 

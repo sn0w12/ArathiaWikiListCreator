@@ -10,8 +10,19 @@ class CategoryMap:
         categories: Dict[str, Dict[str, any]],
         category_titles: Dict[str, str] = None,
     ):
-        self.categories = categories
+        self.categories = self._normalize_categories(categories)
         self.category_titles = category_titles or {}
+
+    def _normalize_categories(self, categories: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Converts simplified category structure to internal format with explicit subcategories"""
+
+        def process_dict(d: Dict) -> Dict:
+            result = {}
+            if d:  # If the dictionary is not empty
+                result["subcategories"] = {k: process_dict(v) for k, v in d.items()}
+            return result
+
+        return {k: process_dict(v) if v else {} for k, v in categories.items()}
 
     def get_mapped_category(
         self, category: str
