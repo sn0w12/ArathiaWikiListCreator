@@ -170,7 +170,7 @@ class WikiTemplate:
         if unCategorized:
             print("Uncategorized members:")
             for member in sorted(unCategorized):
-                print(f"- {member}")
+                print(f"https://www.arathia.net/wiki/{member}")
 
     def generate_header(self):
         return f"""{{| class="mw-collapsible mw-collapsed wikitable custom-button" style="width:100%;"
