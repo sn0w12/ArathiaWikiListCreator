@@ -128,7 +128,7 @@ class SpeciesListBuilder:
                     },
                     "Aquatic Godly Species": {},
                 },
-                "Arthropoda": {"Polyphaga": {}},
+                "Arthropoda": {"Polyphaga": {}, "Arachnida": {}},
             },
             "Aetherial": {
                 "Chordata": {
