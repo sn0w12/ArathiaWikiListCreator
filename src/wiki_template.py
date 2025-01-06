@@ -5,6 +5,24 @@ from functools import partial
 
 
 class CategoryMap:
+    """
+    A class for managing hierarchical category structures and their mappings.
+    This class handles category relationships, titles, and various metrics about the category hierarchy.
+    It supports nested subcategories and provides methods to query and manipulate the category structure.
+    Attributes:
+        categories (Dict[str, Dict]): The normalized category hierarchy structure.
+        category_titles (Dict[str, str]): Mapping of category identifiers to their display titles.
+    Example:
+        categories = {
+            "parent": {
+                "child1": {},
+                "child2": {"grandchild": {}}
+            }
+        }
+        titles = {"parent": "Parent Category", "child1": "First Child"}
+        category_map = CategoryMap(categories, titles)
+    """
+
     def __init__(
         self,
         categories: Dict[str, Dict[str, any]],
@@ -153,6 +171,19 @@ class CategoryMap:
 
 
 class WikiTemplate:
+    """
+    A template engine for generating MediaWiki tables with hierarchical category structures.
+    This class handles the creation of collapsible wiki tables with nested category hierarchies,
+    processing wiki categories and their members according to a predefined category mapping system.
+    Attributes:
+        title (str): The title of the wiki table.
+        wiki_api (WikiAPI): Interface for wiki operations.
+        rows (list): Storage for table rows.
+        categories (dict): Nested dictionary storing category hierarchies and their members.
+        category_map (CategoryMap): Mapping system for categories and their relationships.
+        ```
+    """
+
     def __init__(self, title, category_map: CategoryMap):
         self.title = title
         self.wiki_api = WikiAPI()
@@ -222,6 +253,16 @@ class WikiTemplate:
         return result
 
     def fetch_category(self, category_name: str):
+        """
+        Fetches and processes members of a specified wiki category, organizing them into mapped categories.
+        This method retrieves all members and subcategories from a given wiki category, then processes
+        each member's categories in parallel to organize them according to the category mapping system.
+        Any members that don't fit into mapped categories are identified as uncategorized.
+        Args:
+            category_name (str): The name of the wiki category to fetch and process.
+        Returns:
+            None
+        """
         members, subcategories = self.wiki_api.get_category_members(category_name)
         unCategorized = set(members)
 
