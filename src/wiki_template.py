@@ -334,6 +334,12 @@ class WikiTemplate:
         return "|}"
 
     def build(self) -> str:
+        """
+        Builds the complete wiki table with hierarchical category structures.
+
+        Returns:
+            str: The generated wiki table as a string.
+        """
         output = []
         output.append(self.generate_header())
 
