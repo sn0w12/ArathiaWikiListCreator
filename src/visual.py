@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QShortcut, QKeySequence  # Add QShortcut and QKeySequence
 from list_builder import ManualListBuilder
 from datetime import datetime
 from colorama import init, Fore, Style
@@ -250,6 +250,12 @@ class WikiListBuilder(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_save_name = None  # Track current save name
+        self.loading_list = False  # Add flag to track when we're loading a list
+        self.target_save_name = None  # Add new variable to track target save name
+
+        # Add save shortcut right after initializing the class variables
+        self.save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.save_shortcut.activated.connect(self.auto_save)
 
         # Create saves directory if it doesn't exist
         os.makedirs("saves", exist_ok=True)
@@ -400,9 +406,14 @@ class WikiListBuilder(QMainWindow):
 
     def auto_save(self):
         """Automatically save the current state"""
+        if self.loading_list:  # Skip if we're loading a list
+            log("Skipping auto-save while loading list", "DEBUG")
+            return
+
         data = self.tree_to_dict()
         if data:
-            filename = self.get_safe_filename()
+            # Use current_save_name if available, otherwise generate from title
+            filename = self.current_save_name or self.get_safe_filename()
             if filename:
                 save_path = os.path.join("saves", f"{filename}.json.gz")
                 with gzip.open(save_path, "wt", encoding="utf-8") as f:
@@ -411,6 +422,9 @@ class WikiListBuilder(QMainWindow):
 
     def on_title_changed(self):
         """Handle title changes and remove old save"""
+        if self.loading_list:  # Skip if we're loading a list
+            return
+
         if self.current_save_name:
             old_save_path = os.path.join("saves", f"{self.current_save_name}.json.gz")
             try:
@@ -426,15 +440,24 @@ class WikiListBuilder(QMainWindow):
         """Load data from a saved file"""
         try:
             save_path = os.path.join("saves", f"{name}.json.gz")
+            self.loading_list = True  # Set flag before loading
+            self.target_save_name = name  # Store target name temporarily
+
             with gzip.open(save_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
-                # Clear the current list before loading new data
                 self.clear_list(add_category=False)
                 self.load_tree_data(data)
-                self.current_save_name = name  # Store current save name
                 self.update_preview()
-                self.auto_save()
+
+            # Now that loading is complete, update the current save name
+            self.current_save_name = self.target_save_name
+            self.target_save_name = None
+            self.loading_list = False
+
         except Exception as e:
+            self.loading_list = False
+            self.current_save_name = None
+            self.target_save_name = None
             print(f"Error loading save: {e}")
 
     def add_category(self):
@@ -551,7 +574,6 @@ class WikiListBuilder(QMainWindow):
         if current:
             current.setText(0, self.title_input.text())
             self.update_preview()
-            self.auto_save()
 
     def show_options(self):
         current = self.tree.currentItem()
