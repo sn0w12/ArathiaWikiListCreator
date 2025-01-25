@@ -1,3 +1,5 @@
+import os
+import gzip
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -15,6 +17,8 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QCheckBox,
+    QListWidget,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
@@ -149,9 +153,91 @@ class TitleEditor(QDialog):
         return titles
 
 
+class SaveSelectionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select or Create List")
+        self.setModal(True)
+        self.setGeometry(100, 100, 400, 300)
+
+        layout = QVBoxLayout(self)
+
+        # List of saves
+        self.saves_list = QListWidget()
+        layout.addWidget(self.saves_list)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        self.new_btn = QPushButton("New List")
+        self.open_btn = QPushButton("Open Selected")
+        self.remove_btn = QPushButton("Remove Selected")  # New remove button
+
+        self.new_btn.clicked.connect(self.create_new)
+        self.open_btn.clicked.connect(self.accept)
+        self.remove_btn.clicked.connect(self.remove_selected)  # New remove handler
+
+        button_layout.addWidget(self.new_btn)
+        button_layout.addWidget(self.open_btn)
+        button_layout.addWidget(self.remove_btn)
+        layout.addLayout(button_layout)
+
+        # Load existing saves
+        self.load_saves()
+
+        # Enable buttons only when item selected
+        self.open_btn.setEnabled(False)
+        self.remove_btn.setEnabled(False)
+        self.saves_list.itemSelectionChanged.connect(self.update_button_states)
+
+    def update_button_states(self):
+        has_selection = bool(self.saves_list.selectedItems())
+        self.open_btn.setEnabled(has_selection)
+        self.remove_btn.setEnabled(has_selection)
+
+    def remove_selected(self):
+        current = self.saves_list.currentItem()
+        if current:
+            reply = QMessageBox.question(
+                self,
+                "Confirm Removal",
+                f'Are you sure you want to remove "{current.text()}"?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                file_path = os.path.join("saves", f"{current.text()}.json.gz")
+                try:
+                    os.remove(file_path)
+                    self.saves_list.takeItem(self.saves_list.row(current))
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Could not remove file: {e}")
+
+    def load_saves(self):
+        saves_dir = "saves"
+        if os.path.exists(saves_dir):
+            for file in os.listdir(saves_dir):
+                if file.endswith(".json.gz"):
+                    self.saves_list.addItem(file[:-8])  # Remove .json.gz
+
+    def create_new(self):
+        self.selected_name = None
+        self.accept()
+
+    def get_selected(self):
+        if self.saves_list.selectedItems():
+            return self.saves_list.currentItem().text()
+        return None
+
+
 class WikiListBuilder(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # Create saves directory if it doesn't exist
+        os.makedirs("saves", exist_ok=True)
+
+        # Initialize UI first
         self.setWindowTitle("Wiki List Builder")
         self.setGeometry(100, 100, 1200, 800)
 
@@ -170,14 +256,20 @@ class WikiListBuilder(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
 
-        # Add save/load buttons at the top
+        # Modify file buttons at the top
         file_buttons_layout = QHBoxLayout()
-        self.save_btn = QPushButton("Save List")
+        self.open_list_btn = QPushButton("Open List")  # New button
+        self.save_btn = QPushButton("Save")  # New auto-save button
+        self.export_btn = QPushButton("Export")  # Renamed from "Save List"
         self.import_btn = QPushButton("Import List")
-        self.save_btn.clicked.connect(self.save_list)
+
+        self.open_list_btn.clicked.connect(self.show_list_selection)
+        self.save_btn.clicked.connect(self.auto_save)
+        self.export_btn.clicked.connect(self.export_list)  # Renamed from save_list
         self.import_btn.clicked.connect(self.import_list)
-        file_buttons_layout.addWidget(self.save_btn)
-        file_buttons_layout.addWidget(self.import_btn)
+
+        for btn in (self.open_list_btn, self.save_btn, self.export_btn, self.import_btn):
+            file_buttons_layout.addWidget(btn)
         left_layout.addLayout(file_buttons_layout)
 
         # Add title input
@@ -274,12 +366,47 @@ class WikiListBuilder(QMainWindow):
 
         splitter.addWidget(right_panel)
 
+        # After all UI elements are created, show save selection dialog
+        dialog = SaveSelectionDialog()
+        if dialog.exec():
+            selected = dialog.get_selected()
+            if selected:
+                self.load_from_save(selected)
+
+    def get_safe_filename(self):
+        """Convert title to safe filename"""
+        title = self.list_title_input.text().split("|")[0].strip()
+        return "".join(c for c in title if c.isalnum() or c in (" ", "-", "_")).rstrip()
+
+    def auto_save(self):
+        """Automatically save the current state"""
+        data = self.tree_to_dict()
+        if data:
+            filename = self.get_safe_filename()
+            if filename:
+                save_path = os.path.join("saves", f"{filename}.json.gz")
+                with gzip.open(save_path, "wt", encoding="utf-8") as f:
+                    json.dump(data, f)
+
+    def load_from_save(self, name):
+        """Load data from a saved file"""
+        try:
+            save_path = os.path.join("saves", f"{name}.json.gz")
+            with gzip.open(save_path, "rt", encoding="utf-8") as f:
+                data = json.load(f)
+                self.load_tree_data(data)
+                self.update_preview()
+                self.auto_save()
+        except Exception as e:
+            print(f"Error loading save: {e}")
+
     def add_category(self):
         item = QTreeWidgetItem(self.tree)
         item.setText(0, "New Category")
         item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")  # Store item type
         self.tree.setCurrentItem(item)
         self.update_preview()
+        self.auto_save()
 
     def add_subcategory(self):
         current = self.tree.currentItem()
@@ -290,6 +417,7 @@ class WikiListBuilder(QMainWindow):
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
             self.update_preview()
+            self.auto_save()
 
     def add_item(self):
         current = self.tree.currentItem()
@@ -301,6 +429,7 @@ class WikiListBuilder(QMainWindow):
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
             self.update_preview()
+            self.auto_save()
 
     def remove_selected(self):
         current = self.tree.currentItem()
@@ -311,6 +440,7 @@ class WikiListBuilder(QMainWindow):
             else:
                 self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(current))
             self.update_preview()
+            self.auto_save()
 
     def update_button_states(self, current):
         """Update button states based on selected item type"""
@@ -372,17 +502,19 @@ class WikiListBuilder(QMainWindow):
         self.update_move_buttons()
 
     def update_description(self, item):
-        """Update description for a specific item"""
+        """Update description and auto-save"""
         if item and item.childCount() == 0:
             item.setData(0, Qt.ItemDataRole.UserRole, self.desc_input.toPlainText())
             self.update_preview()
+            self.auto_save()
 
     def update_selected_item(self):
-        """Only handle title updates now"""
+        """Update title and auto-save"""
         current = self.tree.currentItem()
         if current:
             current.setText(0, self.title_input.text())
             self.update_preview()
+            self.auto_save()
 
     def show_options(self):
         current = self.tree.currentItem()
@@ -397,6 +529,7 @@ class WikiListBuilder(QMainWindow):
                 options = {"extra_depth": dialog.depth_spinner.value()}
                 current.setData(0, Qt.ItemDataRole.UserRole + 1, options)
                 self.update_preview()
+                self.auto_save()
 
     def edit_titles(self):
         # Get the stored title data if it exists, otherwise use the display text
@@ -412,6 +545,7 @@ class WikiListBuilder(QMainWindow):
                 self.list_title_input.setProperty("titleData", titles)
                 self.list_title_input.setText(" | ".join(t["title"] if isinstance(t, dict) else t for t in titles))
             self.update_preview()
+            self.auto_save()
 
     def tree_to_dict(self):
         def process_item(item):
@@ -457,10 +591,11 @@ class WikiListBuilder(QMainWindow):
             builder = ManualListBuilder(title, data, collapsible=collapsible)
             self.preview.setText(builder.build())
 
-    def save_list(self):
+    def export_list(self):
+        """Renamed from save_list - exports to external file"""
         file_name, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Wiki List",
+            "Export Wiki List",
             "",
             "JSON Files (*.json);;All Files (*)",
         )
@@ -547,6 +682,7 @@ class WikiListBuilder(QMainWindow):
             parent.insertChild(current_index - 1, current)
             self.tree.setCurrentItem(current)
             self.update_preview()
+            self.auto_save()
 
         self.update_move_buttons()
 
@@ -564,6 +700,7 @@ class WikiListBuilder(QMainWindow):
             parent.insertChild(current_index + 1, current)
             self.tree.setCurrentItem(current)
             self.update_preview()
+            self.auto_save()
 
         self.update_move_buttons()
 
@@ -579,6 +716,25 @@ class WikiListBuilder(QMainWindow):
 
         self.move_up_btn.setEnabled(current_index > 0)
         self.move_down_btn.setEnabled(current_index < parent.childCount() - 1)
+
+    def clear_list(self):
+        """Clear all current list data"""
+        self.tree.clear()
+        self.list_title_input.setText("List of Items")
+        self.list_title_input.setProperty("titleData", None)
+        self.collapsible_checkbox.setChecked(False)
+        self.update_preview()
+
+    def show_list_selection(self):
+        """Show the list selection dialog"""
+        dialog = SaveSelectionDialog(self)
+        if dialog.exec():
+            selected = dialog.get_selected()
+            if selected:
+                self.load_from_save(selected)
+            else:
+                # Clear the current list when creating a new one
+                self.clear_list()
 
 
 if __name__ == "__main__":
