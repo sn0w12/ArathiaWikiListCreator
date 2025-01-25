@@ -1,3 +1,4 @@
 pyperclip
 PyQt6
 pyqtdarktheme
+colorama

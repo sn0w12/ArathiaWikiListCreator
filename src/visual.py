@@ -23,8 +23,22 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from list_builder import ManualListBuilder
+from datetime import datetime
+from colorama import init, Fore, Style
 import qdarktheme
 import json
+
+init()
+
+
+LOG_LEVELS = {"INFO": Fore.GREEN, "WARNING": Fore.YELLOW, "ERROR": Fore.RED, "DEBUG": Fore.CYAN}
+
+
+def log(msg, level="INFO"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    color = LOG_LEVELS.get(level, Fore.WHITE)
+    formatted_msg = f"{timestamp} {color}[{level}]{Style.RESET_ALL} {msg}"
+    print(formatted_msg)
 
 
 class OptionsDialog(QDialog):
@@ -393,6 +407,7 @@ class WikiListBuilder(QMainWindow):
                 save_path = os.path.join("saves", f"{filename}.json.gz")
                 with gzip.open(save_path, "wt", encoding="utf-8") as f:
                     json.dump(data, f)
+                log(f"Saved list to {save_path}", "INFO")
 
     def on_title_changed(self):
         """Handle title changes and remove old save"""
