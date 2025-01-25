@@ -1,1 +1,0 @@
-pyinstaller.exe --onefile --windowed --icon=arathia.ico --name=ListBuilder manual_vis.py
