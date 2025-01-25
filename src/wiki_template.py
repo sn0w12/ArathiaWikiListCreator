@@ -42,9 +42,7 @@ class CategoryMap:
 
         return {k: process_dict(v) if v else {} for k, v in categories.items()}
 
-    def get_mapped_category(
-        self, category: str
-    ) -> Tuple[str, Optional[str], Optional[str]]:
+    def get_mapped_category(self, category: str) -> Tuple[str, Optional[str], Optional[str]]:
         """Returns (parent_category, subcategory, title) tuple. If no mapping exists, returns (category, None, title)"""
 
         def search_subcategories(parent: str, data: dict, path: List[str] = []):
@@ -79,9 +77,7 @@ class CategoryMap:
         """Returns the maximum number of subcategories for any parent category"""
         if not self.categories:
             return 0
-        return max(
-            len(data.get("subcategories", [])) for data in self.categories.values()
-        )
+        return max(len(data.get("subcategories", [])) for data in self.categories.values())
 
     def get_max_category_depth(self) -> int:
         """Returns the maximum depth of nested subcategories"""
@@ -196,8 +192,7 @@ class WikiTemplate:
                 return {"members": []}
             return {
                 "subcategories": {
-                    subcat: initialize_category_structure(subdata)
-                    for subcat, subdata in data["subcategories"].items()
+                    subcat: initialize_category_structure(subdata) for subcat, subdata in data["subcategories"].items()
                 }
             }
 
@@ -205,9 +200,7 @@ class WikiTemplate:
         for category, data in self.category_map.get_all_categories().items():
             self.categories[category] = initialize_category_structure(data)
 
-    def _find_category_dict(
-        self, category: str, subcategory: str | None = None
-    ) -> dict:
+    def _find_category_dict(self, category: str, subcategory: str | None = None) -> dict:
         """Helper method to find the correct category dictionary in the nested structure"""
         if subcategory is None:
             return self.categories.setdefault(category, {"members": []})
@@ -268,17 +261,13 @@ class WikiTemplate:
 
         # Process categories in parallel
         with ThreadPoolExecutor(max_workers=10) as executor:
-            process_func = partial(
-                self._process_member_categories, base_category=category_name
-            )
+            process_func = partial(self._process_member_categories, base_category=category_name)
             results = list(executor.map(process_func, members))
 
         # Aggregate results
         for member_results in results:
             for category, member in member_results:
-                parent_category, subcategory, display_title = (
-                    self.category_map.get_mapped_category(category)
-                )
+                parent_category, subcategory, display_title = self.category_map.get_mapped_category(category)
                 self._add_to_categories(parent_category, subcategory, member)
                 unCategorized.discard(member)
 
@@ -303,18 +292,12 @@ class WikiTemplate:
             row_classes.append("custom-row")
         row_class_1 = f'class="{" ".join(row_classes)}" |' if row_classes else ""
         row_class_2 = (
-            f'class="{" ".join([c for c in row_classes if c != "dotted-row"])}" |'
-            if len(row_classes) > 1
-            else ""
+            f'class="{" ".join([c for c in row_classes if c != "dotted-row"])}" |' if len(row_classes) > 1 else ""
         )
         wrapped_members = [f"[[{member}]]" for member in members]
 
         max_depth = self.category_map.get_max_category_depth()
-        colspan = (
-            f'colspan="{max_depth - depth} "'
-            if row_class_2
-            else f'colspan="{max_depth - depth}"|'
-        )
+        colspan = f'colspan="{max_depth - depth} "' if row_class_2 else f'colspan="{max_depth - depth}"|'
 
         return f"|{row_class_1}{display_title}\n|{colspan}{row_class_2}{self.generate_member_separator().join(wrapped_members)}"
 
@@ -359,11 +342,7 @@ class WikiTemplate:
                         process_category(subcat, subdata, depth)
 
                     if "members" in subdata:
-                        output.append(
-                            self.generate_subclass_row(
-                                subcat, subdata["members"], idx, depth
-                            )
-                        )
+                        output.append(self.generate_subclass_row(subcat, subdata["members"], idx, depth))
                         if idx < len(subcats) - 1 or depth != 0:
                             output.append(self.generate_row_separator())
             elif "members" in data:
@@ -374,3 +353,114 @@ class WikiTemplate:
             process_category(category, data)
 
         return "\n".join(output[:-1] + [self.generate_footer()])
+
+
+class ManualWikiTemplate:
+    def __init__(self, title, categories):
+        self.title = title
+        self.categories = categories
+        self.collapsible = False
+
+    def get_max_category_depth(self) -> int:
+        """Returns the maximum depth of nested subcategories"""
+        if not self.categories:
+            return 0
+
+        def get_depth(d: dict) -> int:
+            if not isinstance(d, dict):
+                return 1
+            if not d:
+                return 1
+            return 1 + max(get_depth(v) for v in d.values())
+
+        return get_depth(self.categories)
+
+    def get_current_max_subcategories(self, data: dict) -> int:
+        """Returns the maximum number of leaf nodes under any category"""
+
+        def count_leaves(d: dict) -> int:
+            if not isinstance(d, dict):
+                return 1
+            if not d:
+                return 0
+            return sum(count_leaves(v) for v in d.values())
+
+        def get_max_at_level(d: dict) -> int:
+            if not isinstance(d, dict):
+                return 1
+            if not d:
+                return 0
+
+            # Count leaves under current node
+            current = count_leaves(d)
+
+            # Recursively get max from children
+            child_maxes = [get_max_at_level(v) for v in d.values() if isinstance(v, dict)]
+
+            return max([current] + child_maxes)
+
+        return get_max_at_level(data)
+
+    def get_category_options(self, category_data):
+        """Extract options from category data"""
+        if isinstance(category_data, dict):
+            return category_data.get("__options", {})
+        return {}
+
+    def get_extra_depth(self, category_data):
+        """Get extra depth from category options"""
+        options = self.get_category_options(category_data)
+        return options.get("extra_depth", 0)
+
+    def process_data_without_options(self, data):
+        """Get category data without the options field"""
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if k != "__options"}
+        return data
+
+    def generate_parent_category(self, category: str, member_count: int, depth: int = 1):
+        colspan = f' colspan="{depth}"' if depth > 1 else ""
+        return f"""|rowspan="{member_count}"{colspan} class="custom-rowspan"|{category}"""
+
+    def generate_header(self):
+        return f"""{{| class="{"mw-collapsible mw-collapsed " if self.collapsible else ""}wikitable custom-button" style="width:100%;"
+! colspan="{self.get_max_category_depth() + 1}" style="text-align:center; font-weight: bold; position: relative;" | {self.title}
+|-"""
+
+    def generate_row_separator(self):
+        return "|-"
+
+    def generate_member_separator(self):
+        return r"{{ts}}"
+
+    def generate_footer(self):
+        return "|}"
+
+    def build(self) -> str:
+        output = []
+        output.append(self.generate_header())
+
+        def process_category(items, current_depth=0):
+            for idx, (title, content) in enumerate(items.items()):
+                if isinstance(content, dict):
+                    data = self.process_data_without_options(content)
+                    extra_depth = self.get_extra_depth(content)
+
+                    output.append(
+                        self.generate_parent_category(
+                            title,
+                            self.get_current_max_subcategories(data),
+                            current_depth + 1 + extra_depth if extra_depth > 0 else 1,
+                        )
+                    )
+                    process_category(data, current_depth + 1 + extra_depth)
+                else:
+                    max_depth = self.get_max_category_depth()
+                    colspan = max_depth - current_depth
+                    output.append(
+                        f"""|class="dotted-row{" custom-row" if idx == 0 else ""}" colspan="{colspan}"|{title}\n|{' class="custom-row"|' if idx == 0 else ""}{self.generate_member_separator().join([f"{content}"])}"""
+                    )
+                    output.append(self.generate_row_separator())
+
+        process_category(self.categories)
+        return "\n".join(output + [self.generate_footer()])
