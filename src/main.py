@@ -1,4 +1,4 @@
-from src.list_builder import (
+from list_builder import (
     CharacterListBuilder,
     CountryListBuilder,
     OathListBuilder,
