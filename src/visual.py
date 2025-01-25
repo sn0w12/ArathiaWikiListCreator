@@ -45,6 +45,8 @@ class OptionsDialog(QDialog):
     def __init__(self, parent=None, extra_depth=0):
         super().__init__(parent)
         self.setWindowTitle("Category Options")
+        self.setWindowIcon(QIcon("img/arathia.ico"))
+        self.setFixedWidth(250)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -69,6 +71,7 @@ class TitleEditor(QDialog):
     def __init__(self, parent=None, titles=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Titles")
+        self.setWindowIcon(QIcon("img/arathia.ico"))
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -171,6 +174,7 @@ class SaveSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select or Create List")
+        self.setWindowIcon(QIcon("img/arathia.ico"))
         self.setModal(True)
         self.setGeometry(100, 100, 400, 300)
 
