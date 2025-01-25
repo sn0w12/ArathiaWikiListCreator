@@ -383,19 +383,29 @@ class ManualWikiTemplate:
                 return 1
             if not d:
                 return 0
-            return sum(count_leaves(v) for v in d.values())
+            # If it's a leaf node (has description)
+            if "description" in d:
+                return 1
+            # Filter out metadata and options
+            filtered_dict = {k: v for k, v in d.items() if k not in ["__metadata", "__options"]}
+            return sum(count_leaves(v) for v in filtered_dict.values())
 
         def get_max_at_level(d: dict) -> int:
             if not isinstance(d, dict):
                 return 1
             if not d:
                 return 0
+            if "description" in d:
+                return 1
+
+            # Filter out metadata and options
+            filtered_dict = {k: v for k, v in d.items() if k not in ["__metadata", "__options"]}
 
             # Count leaves under current node
-            current = count_leaves(d)
+            current = count_leaves(filtered_dict)
 
             # Recursively get max from children
-            child_maxes = [get_max_at_level(v) for v in d.values() if isinstance(v, dict)]
+            child_maxes = [get_max_at_level(v) for v in filtered_dict.values() if isinstance(v, dict)]
 
             return max([current] + child_maxes)
 
@@ -413,9 +423,9 @@ class ManualWikiTemplate:
         return options.get("extra_depth", 0)
 
     def process_data_without_options(self, data):
-        """Get category data without the options field"""
+        """Get category data without the options and metadata fields"""
         if isinstance(data, dict):
-            return {k: v for k, v in data.items() if k != "__options"}
+            return {k: v for k, v in data.items() if k not in ["__options", "__metadata"]}
         return data
 
     def generate_parent_category(self, category: str, member_count: int, depth: int = 1):
@@ -443,24 +453,29 @@ class ManualWikiTemplate:
         def process_category(items, current_depth=0):
             for idx, (title, content) in enumerate(items.items()):
                 if isinstance(content, dict):
-                    data = self.process_data_without_options(content)
-                    extra_depth = self.get_extra_depth(content)
+                    # Skip any metadata fields
+                    if title == "__metadata":
+                        continue
 
-                    output.append(
-                        self.generate_parent_category(
-                            title,
-                            self.get_current_max_subcategories(data),
-                            current_depth + 1 + extra_depth if extra_depth > 0 else 1,
+                    if "description" in content:
+                        max_depth = self.get_max_category_depth()
+                        colspan = max_depth - current_depth
+                        output.append(
+                            f"""|class="dotted-row{" custom-row" if idx == 0 else ""}" colspan="{colspan}"|{title}\n|{' class="custom-row"|' if idx == 0 else ""}{self.generate_member_separator().join([f"{content['description']}"])}"""
                         )
-                    )
-                    process_category(data, current_depth + 1 + extra_depth)
-                else:
-                    max_depth = self.get_max_category_depth()
-                    colspan = max_depth - current_depth
-                    output.append(
-                        f"""|class="dotted-row{" custom-row" if idx == 0 else ""}" colspan="{colspan}"|{title}\n|{' class="custom-row"|' if idx == 0 else ""}{self.generate_member_separator().join([f"{content}"])}"""
-                    )
-                    output.append(self.generate_row_separator())
+                        output.append(self.generate_row_separator())
+                    else:
+                        data = self.process_data_without_options(content)
+                        extra_depth = self.get_extra_depth(content)
+
+                        output.append(
+                            self.generate_parent_category(
+                                title,
+                                self.get_current_max_subcategories(data),
+                                current_depth + 1 + extra_depth if extra_depth > 0 else 1,
+                            )
+                        )
+                        process_category(data, current_depth + 1 + extra_depth)
 
         process_category(self.categories)
         return "\n".join(output + [self.generate_footer()])

@@ -162,6 +162,7 @@ class WikiListBuilder(QMainWindow):
     def add_category(self):
         item = QTreeWidgetItem(self.tree)
         item.setText(0, "New Category")
+        item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")  # Store item type
         self.tree.setCurrentItem(item)
         self.update_preview()
 
@@ -170,6 +171,7 @@ class WikiListBuilder(QMainWindow):
         if current:
             item = QTreeWidgetItem(current)
             item.setText(0, "New Subcategory")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, "subcategory")  # Store item type
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
             self.update_preview()
@@ -180,6 +182,7 @@ class WikiListBuilder(QMainWindow):
             item = QTreeWidgetItem(current)
             item.setText(0, "New Item")
             item.setData(0, Qt.ItemDataRole.UserRole, "")  # Store description
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, "item")  # Store item type
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
             self.update_preview()
@@ -193,6 +196,33 @@ class WikiListBuilder(QMainWindow):
             else:
                 self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(current))
             self.update_preview()
+
+    def update_button_states(self, current):
+        """Update button states based on selected item type"""
+        if not current:
+            # No selection - disable all add buttons
+            self.add_category_btn.setEnabled(False)
+            self.add_subcategory_btn.setEnabled(False)
+            self.add_item_btn.setEnabled(False)
+            return
+
+        item_type = current.data(0, Qt.ItemDataRole.UserRole + 2)
+
+        if item_type == "category":
+            # Categories can contain anything
+            self.add_category_btn.setEnabled(True)
+            self.add_subcategory_btn.setEnabled(True)
+            self.add_item_btn.setEnabled(True)
+        elif item_type == "subcategory":
+            # Subcategories can contain subcategories and items
+            self.add_category_btn.setEnabled(False)
+            self.add_subcategory_btn.setEnabled(True)
+            self.add_item_btn.setEnabled(True)
+        else:  # item type
+            # Items can't contain anything
+            self.add_category_btn.setEnabled(False)
+            self.add_subcategory_btn.setEnabled(False)
+            self.add_item_btn.setEnabled(False)
 
     def on_selection_changed(self):
         # Safe disconnect - check if there are any connections first
@@ -208,21 +238,23 @@ class WikiListBuilder(QMainWindow):
             self.desc_input.setVisible(is_leaf)
             self.desc_input.setEnabled(is_leaf)
             if is_leaf:
-                self.desc_input.blockSignals(True)  # Block signals while setting text
+                self.desc_input.blockSignals(True)
                 self.desc_input.setText(current.data(0, Qt.ItemDataRole.UserRole) or "")
-                self.desc_input.blockSignals(False)  # Re-enable signals
-                # Create a unique connection for this item
+                self.desc_input.blockSignals(False)
                 self.desc_input.textChanged.connect(lambda: self.update_description(current))
             else:
                 self.desc_input.clear()
-            options_enabled = current.childCount() > 0
-            self.options_btn.setEnabled(options_enabled)
+
+            # Enable options only for subcategories
+            item_type = current.data(0, Qt.ItemDataRole.UserRole + 2)
+            self.options_btn.setEnabled(item_type == "subcategory" or item_type == "category")
         else:
             self.title_input.clear()
             self.desc_input.clear()
             self.options_btn.setEnabled(False)
 
-        self.update_move_buttons()  # Add this line at the end
+        self.update_button_states(current)
+        self.update_move_buttons()
 
     def update_description(self, item):
         """Update description for a specific item"""
@@ -253,11 +285,14 @@ class WikiListBuilder(QMainWindow):
 
     def tree_to_dict(self):
         def process_item(item):
-            if item.childCount() == 0:
-                # Only return description for leaf nodes (items)
-                return item.data(0, Qt.ItemDataRole.UserRole)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole + 2)
 
-            result = {}
+            if item.childCount() == 0:
+                # For leaf nodes (items)
+                return {"__metadata": {"type": item_type}, "description": item.data(0, Qt.ItemDataRole.UserRole)}
+
+            result = {"__metadata": {"type": item_type}}
+
             options = item.data(0, Qt.ItemDataRole.UserRole + 1)
             if options:
                 result["__options"] = options
@@ -314,24 +349,31 @@ class WikiListBuilder(QMainWindow):
             data = {k: v for k, v in data.items() if k != "__title"}
 
         for key, value in data.items():
-            if key == "__options":
+            if key in ["__options", "__metadata"]:
                 continue
+
             if isinstance(value, dict):
                 if parent is None:
                     item = QTreeWidgetItem(self.tree)
                 else:
                     item = QTreeWidgetItem(parent)
                 item.setText(0, key)
+
+                # Set metadata (item type)
+                if "__metadata" in value:
+                    item.setData(0, Qt.ItemDataRole.UserRole + 2, value["__metadata"].get("type", "category"))
+
+                # Set options if present
                 if "__options" in value:
                     item.setData(0, Qt.ItemDataRole.UserRole + 1, value["__options"])
-                self.load_tree_data(value, item)
-            else:
-                if parent is None:
-                    item = QTreeWidgetItem(self.tree)
-                else:
-                    item = QTreeWidgetItem(parent)
-                item.setText(0, key)
-                item.setData(0, Qt.ItemDataRole.UserRole, value)
+
+                # Set description for items
+                if "description" in value:
+                    item.setData(0, Qt.ItemDataRole.UserRole, value["description"])
+
+                # Recursively process children (excluding metadata and options)
+                child_data = {k: v for k, v in value.items() if k not in ["__metadata", "__options", "description"]}
+                self.load_tree_data(child_data, item)
 
     def copy_preview(self):
         QApplication.clipboard().setText(self.preview.toPlainText())
