@@ -357,6 +357,8 @@ class WikiTemplate:
 
 class ManualWikiTemplate:
     def __init__(self, title, categories):
+        # Title can be either a string or a list of dicts with 'title' and 'cols' keys
+        # The last title in the list doesn't need 'cols' specified
         self.title = title
         self.categories = categories
         self.collapsible = False
@@ -433,9 +435,40 @@ class ManualWikiTemplate:
         return f"""|rowspan="{member_count}"{colspan} class="custom-rowspan"|{category}"""
 
     def generate_header(self):
-        return f"""{{| class="{"mw-collapsible mw-collapsed " if self.collapsible else ""}wikitable custom-button" style="width:100%;"
-! colspan="{self.get_max_category_depth() + 1}" style="text-align:center; font-weight: bold; position: relative;" | {self.title}
-|-"""
+        base = f"""{{| class="{"mw-collapsible mw-collapsed " if self.collapsible else ""}wikitable custom-button" style="width:100%;\n"""
+
+        if isinstance(self.title, str):
+            # Original behavior for single string title
+            return (
+                base
+                + f"""! colspan="{self.get_max_category_depth() + 1}" style="text-align:center; font-weight: bold; position: relative;" | {self.title}\n|-"""
+            )
+        else:
+            # Handle multiple titles
+            titles = []
+            total_cols = self.get_max_category_depth() + 1
+            remaining_cols = total_cols
+
+            for i, title_data in enumerate(self.title):
+                if isinstance(title_data, dict):
+                    class_name = ""
+                    if i == len(self.title) - 1:
+                        # Last title gets all remaining columns
+                        cols = remaining_cols
+                    else:
+                        cols = title_data.get("cols", 1)
+                        class_name = ' class="dotted-row"'
+                        remaining_cols -= cols
+                    titles.append(
+                        f"""! colspan="{cols}"{class_name} style="text-align:center; font-weight: bold; position: relative;" | {title_data["title"]}"""
+                    )
+                else:
+                    # Handle string title (should only be used if it's the only title)
+                    titles.append(
+                        f"""! colspan="{total_cols}" style="text-align:center; font-weight: bold; position: relative;" | {title_data}"""
+                    )
+
+            return base + "\n".join(titles) + "\n|-"
 
     def generate_row_separator(self):
         return "|-"

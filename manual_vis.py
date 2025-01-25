@@ -45,6 +45,108 @@ class OptionsDialog(QDialog):
         layout.addWidget(ok_button)
 
 
+class TitleEditor(QDialog):
+    def __init__(self, parent=None, titles=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Titles")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # Title list widget
+        self.titles_widget = QTreeWidget()
+        self.titles_widget.setHeaderLabels(["Title", "Columns"])
+        self.titles_widget.setRootIsDecorated(False)
+        layout.addWidget(self.titles_widget)
+
+        # Buttons for managing titles
+        button_layout = QHBoxLayout()
+        self.add_btn = QPushButton("Add Title")
+        self.remove_btn = QPushButton("Remove Title")
+        self.add_btn.clicked.connect(self.add_title)
+        self.remove_btn.clicked.connect(self.remove_title)
+        button_layout.addWidget(self.add_btn)
+        button_layout.addWidget(self.remove_btn)
+        layout.addLayout(button_layout)
+
+        # OK/Cancel buttons
+        dialog_buttons = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        ok_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        dialog_buttons.addWidget(ok_button)
+        dialog_buttons.addWidget(cancel_button)
+        layout.addLayout(dialog_buttons)
+
+        # Load existing titles
+        if titles:
+            self.load_titles(titles)
+        else:
+            self.add_title()
+
+    def update_column_editability(self):
+        """Update which columns fields are editable"""
+        for i in range(self.titles_widget.topLevelItemCount()):
+            item = self.titles_widget.topLevelItem(i)
+            # Only allow editing columns for non-last items
+            if i == self.titles_widget.topLevelItemCount() - 1:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setText(1, "")  # Clear columns for last item
+            else:
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+
+    def add_title(self):
+        item = QTreeWidgetItem(self.titles_widget)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        item.setText(0, "New Title")
+        item.setText(1, "1")
+        self.titles_widget.setCurrentItem(item)
+        self.update_column_editability()
+
+    def remove_title(self):
+        current = self.titles_widget.currentItem()
+        if current:
+            self.titles_widget.takeTopLevelItem(self.titles_widget.indexOfTopLevelItem(current))
+            self.update_column_editability()
+
+    def load_titles(self, titles):
+        if isinstance(titles, str):
+            item = QTreeWidgetItem(self.titles_widget)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+            item.setText(0, titles)
+            item.setText(1, "")
+        else:
+            for title_data in titles:
+                item = QTreeWidgetItem(self.titles_widget)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                if isinstance(title_data, dict):
+                    item.setText(0, title_data["title"])
+                    item.setText(1, str(title_data.get("cols", 1)))
+                else:
+                    item.setText(0, title_data)
+                    item.setText(1, "")
+        self.update_column_editability()
+
+    def get_titles(self):
+        titles = []
+        for i in range(self.titles_widget.topLevelItemCount()):
+            item = self.titles_widget.topLevelItem(i)
+            title = item.text(0)
+            cols = item.text(1)
+
+            if cols and i < self.titles_widget.topLevelItemCount() - 1:
+                titles.append({"title": title, "cols": int(cols)})
+            else:
+                titles.append({"title": title})
+
+        # If there's only one title without columns, return just the string
+        if len(titles) == 1 and "cols" not in titles[0]:
+            return titles[0]["title"]
+
+        return titles
+
+
 class WikiListBuilder(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -78,9 +180,11 @@ class WikiListBuilder(QMainWindow):
         title_layout = QHBoxLayout()
         title_label = QLabel("List Title:")
         self.list_title_input = QLineEdit("List of Items")  # Default title
-        self.list_title_input.textChanged.connect(self.update_preview)
+        self.edit_titles_btn = QPushButton("Edit Titles")
+        self.edit_titles_btn.clicked.connect(self.edit_titles)
         title_layout.addWidget(title_label)
         title_layout.addWidget(self.list_title_input)
+        title_layout.addWidget(self.edit_titles_btn)
         left_layout.addLayout(title_layout)
 
         # Tree widget (now after title input)
@@ -283,6 +387,21 @@ class WikiListBuilder(QMainWindow):
                 current.setData(0, Qt.ItemDataRole.UserRole + 1, options)
                 self.update_preview()
 
+    def edit_titles(self):
+        # Get the stored title data if it exists, otherwise use the display text
+        current_titles = self.list_title_input.property("titleData") or self.list_title_input.text()
+        dialog = TitleEditor(self, current_titles)
+        if dialog.exec():
+            titles = dialog.get_titles()
+            if isinstance(titles, str):
+                self.list_title_input.setText(titles)
+                self.list_title_input.setProperty("titleData", None)  # Clear stored data if it's a simple title
+            else:
+                # Store the full title data and show first title in input
+                self.list_title_input.setProperty("titleData", titles)
+                self.list_title_input.setText(" | ".join(t["title"] if isinstance(t, dict) else t for t in titles))
+            self.update_preview()
+
     def tree_to_dict(self):
         def process_item(item):
             item_type = item.data(0, Qt.ItemDataRole.UserRole + 2)
@@ -302,9 +421,15 @@ class WikiListBuilder(QMainWindow):
                 result[child.text(0)] = process_item(child)
             return result
 
-        root_dict = {
-            "__title": self.list_title_input.text(),
-        }
+        root_dict = {}
+
+        # Handle title data
+        title_data = self.list_title_input.property("titleData")
+        if title_data:
+            root_dict["__title"] = title_data
+        else:
+            root_dict["__title"] = self.list_title_input.text()
+
         for i in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(i)
             root_dict[item.text(0)] = process_item(item)
@@ -345,7 +470,17 @@ class WikiListBuilder(QMainWindow):
     def load_tree_data(self, data, parent=None):
         # Set title if present
         if "__title" in data:
-            self.list_title_input.setText(data["__title"])
+            title_data = data["__title"]
+            if isinstance(title_data, (list, dict)):
+                self.list_title_input.setProperty("titleData", title_data)
+                self.list_title_input.setText(
+                    " | ".join(
+                        t["title"] if isinstance(t, dict) else t
+                        for t in (title_data if isinstance(title_data, list) else [title_data])
+                    )
+                )
+            else:
+                self.list_title_input.setText(str(title_data))
             data = {k: v for k, v in data.items() if k != "__title"}
 
         for key, value in data.items():
