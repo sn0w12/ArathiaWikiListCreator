@@ -483,9 +483,9 @@ class WikiListBuilder(QMainWindow):
         """Update button states based on selected item type"""
         if not current:
             # No selection - disable all add buttons
-            self.add_category_btn.setEnabled(False)
-            self.add_subcategory_btn.setEnabled(False)
-            self.add_item_btn.setEnabled(False)
+            self.add_category_btn.setEnabled(True)
+            self.add_subcategory_btn.setEnabled(True)
+            self.add_item_btn.setEnabled(True)
             return
 
         item_type = current.data(0, Qt.ItemDataRole.UserRole + 2)
