@@ -1,4 +1,4 @@
-from src.api import WikiAPI
+from api import WikiAPI
 from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial

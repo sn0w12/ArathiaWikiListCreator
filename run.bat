@@ -1,3 +1,3 @@
 @echo off
-python visual.py
+python src/visual.py
 pause

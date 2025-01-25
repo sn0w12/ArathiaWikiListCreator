@@ -1,4 +1,4 @@
-from src.wiki_template import WikiTemplate, ManualWikiTemplate, CategoryMap
+from wiki_template import WikiTemplate, ManualWikiTemplate, CategoryMap
 
 
 class GenericListBuilder:
