@@ -221,6 +221,8 @@ class SaveSelectionDialog(QDialog):
                     self.saves_list.addItem(file[:-8])  # Remove .json.gz
 
     def create_new(self):
+        """Clear selection and create new list"""
+        self.saves_list.clearSelection()  # Clear any existing selection
         self.selected_name = None
         self.accept()
 
@@ -718,11 +720,18 @@ class WikiListBuilder(QMainWindow):
         self.move_down_btn.setEnabled(current_index < parent.childCount() - 1)
 
     def clear_list(self):
-        """Clear all current list data"""
+        """Clear all current list data and add empty category"""
         self.tree.clear()
         self.list_title_input.setText("List of Items")
         self.list_title_input.setProperty("titleData", None)
         self.collapsible_checkbox.setChecked(False)
+
+        # Add empty category
+        item = QTreeWidgetItem(self.tree)
+        item.setText(0, "New Category")
+        item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")
+        self.tree.setCurrentItem(item)
+
         self.update_preview()
 
     def show_list_selection(self):
