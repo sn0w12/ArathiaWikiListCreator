@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from src.list_builder import ManualListBuilder
 import qdarktheme
 import json
@@ -153,6 +154,8 @@ class WikiListBuilder(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wiki List Builder")
         self.setGeometry(100, 100, 1200, 800)
+
+        self.setWindowIcon(QIcon("arathia.ico"))
 
         # Create main widget and layout
         main_widget = QWidget()
