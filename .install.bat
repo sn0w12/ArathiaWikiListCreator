@@ -1,6 +1,6 @@
 @echo off
 echo Installing required packages...
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt --ignore-requires-python
 if errorlevel 1 (
     echo Error: Failed to install requirements
     pause
