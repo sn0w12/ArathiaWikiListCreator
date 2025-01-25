@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QDialog,
     QFileDialog,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt
 from src.list_builder import ManualListBuilder
@@ -186,6 +187,13 @@ class WikiListBuilder(QMainWindow):
         title_layout.addWidget(self.list_title_input)
         title_layout.addWidget(self.edit_titles_btn)
         left_layout.addLayout(title_layout)
+
+        # Add collapsible checkbox after title input
+        collapsible_layout = QHBoxLayout()
+        self.collapsible_checkbox = QCheckBox("Collapsible")
+        self.collapsible_checkbox.stateChanged.connect(self.update_preview)
+        collapsible_layout.addWidget(self.collapsible_checkbox)
+        left_layout.addLayout(collapsible_layout)
 
         # Tree widget (now after title input)
         self.tree = QTreeWidget()
@@ -423,6 +431,9 @@ class WikiListBuilder(QMainWindow):
 
         root_dict = {}
 
+        # Add collapsible state to the data
+        root_dict["__collapsible"] = self.collapsible_checkbox.isChecked()
+
         # Handle title data
         title_data = self.list_title_input.property("titleData")
         if title_data:
@@ -439,7 +450,8 @@ class WikiListBuilder(QMainWindow):
         data = self.tree_to_dict()
         if data:
             title = data.pop("__title", "List of Items")
-            builder = ManualListBuilder(title, data)
+            collapsible = data.pop("__collapsible", False)
+            builder = ManualListBuilder(title, data, collapsible=collapsible)
             self.preview.setText(builder.build())
 
     def save_list(self):
@@ -482,6 +494,11 @@ class WikiListBuilder(QMainWindow):
             else:
                 self.list_title_input.setText(str(title_data))
             data = {k: v for k, v in data.items() if k != "__title"}
+
+        # Set collapsible state if present
+        if "__collapsible" in data:
+            self.collapsible_checkbox.setChecked(data["__collapsible"])
+            data = {k: v for k, v in data.items() if k != "__collapsible"}
 
         for key, value in data.items():
             if key in ["__options", "__metadata"]:

@@ -356,12 +356,12 @@ class WikiTemplate:
 
 
 class ManualWikiTemplate:
-    def __init__(self, title, categories):
+    def __init__(self, title, categories, collapsible=False):
         # Title can be either a string or a list of dicts with 'title' and 'cols' keys
         # The last title in the list doesn't need 'cols' specified
         self.title = title
         self.categories = categories
-        self.collapsible = False
+        self.collapsible = collapsible
 
     def get_max_category_depth(self) -> int:
         """Returns the maximum depth of nested subcategories"""

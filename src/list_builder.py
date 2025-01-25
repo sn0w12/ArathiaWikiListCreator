@@ -12,8 +12,8 @@ class GenericListBuilder:
 
 
 class ManualListBuilder:
-    def __init__(self, title: str, categories: dict):
-        self.manual_template = ManualWikiTemplate(title, categories)
+    def __init__(self, title: str, categories: dict, collapsible: bool = False):
+        self.manual_template = ManualWikiTemplate(title, categories, collapsible)
 
     def build(self) -> str:
         return self.manual_template.build()
