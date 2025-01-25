@@ -91,15 +91,25 @@ class WikiListBuilder(QMainWindow):
 
         # Buttons
         button_layout = QHBoxLayout()
+        move_layout = QHBoxLayout()  # New layout for movement buttons
+
         self.add_category_btn = QPushButton("Add Category")
         self.add_subcategory_btn = QPushButton("Add Subcategory")
         self.add_item_btn = QPushButton("Add Item")
         self.remove_btn = QPushButton("Remove")
+        self.move_up_btn = QPushButton("↑")  # Up arrow
+        self.move_down_btn = QPushButton("↓")  # Down arrow
 
         self.add_category_btn.clicked.connect(self.add_category)
         self.add_subcategory_btn.clicked.connect(self.add_subcategory)
         self.add_item_btn.clicked.connect(self.add_item)
         self.remove_btn.clicked.connect(self.remove_selected)
+        self.move_up_btn.clicked.connect(self.move_item_up)
+        self.move_down_btn.clicked.connect(self.move_item_down)
+
+        # Add movement buttons to their own layout
+        move_layout.addWidget(self.move_up_btn)
+        move_layout.addWidget(self.move_down_btn)
 
         for btn in (self.add_category_btn, self.add_subcategory_btn, self.add_item_btn, self.remove_btn):
             button_layout.addWidget(btn)
@@ -107,9 +117,11 @@ class WikiListBuilder(QMainWindow):
         # Add options button
         self.options_btn = QPushButton("Options")
         self.options_btn.clicked.connect(self.show_options)
+        self.options_btn.setEnabled(False)
         button_layout.addWidget(self.options_btn)
 
         left_layout.addLayout(button_layout)
+        left_layout.addLayout(move_layout)  # Add movement buttons layout
         splitter.addWidget(left_panel)
 
         # Right panel - Item details and preview
@@ -123,12 +135,16 @@ class WikiListBuilder(QMainWindow):
 
         self.desc_label = QLabel("Description:")
         self.desc_input = QTextEdit()
-        self.desc_input.textChanged.connect(self.update_selected_item)
+        # Remove the disconnect line - we'll handle connections in on_selection_changed
 
         # Preview
         preview_label = QLabel("Preview:")
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
+
+        # Add copy button
+        self.copy_btn = QPushButton("Copy to Clipboard")
+        self.copy_btn.clicked.connect(self.copy_preview)
 
         for widget in (
             self.title_label,
@@ -137,6 +153,7 @@ class WikiListBuilder(QMainWindow):
             self.desc_input,
             preview_label,
             self.preview,
+            self.copy_btn,  # Add the copy button to the layout
         ):
             right_layout.addWidget(widget)
 
@@ -178,19 +195,46 @@ class WikiListBuilder(QMainWindow):
             self.update_preview()
 
     def on_selection_changed(self):
+        # Safe disconnect - check if there are any connections first
+        if self.desc_input.receivers(self.desc_input.textChanged) > 0:
+            self.desc_input.textChanged.disconnect()
+
         current = self.tree.currentItem()
         if current:
             self.title_input.setText(current.text(0))
-            self.desc_input.setText(current.data(0, Qt.ItemDataRole.UserRole) or "")
+            # Only show and enable description for items (leaves)
+            is_leaf = current.childCount() == 0
+            self.desc_label.setVisible(is_leaf)
+            self.desc_input.setVisible(is_leaf)
+            self.desc_input.setEnabled(is_leaf)
+            if is_leaf:
+                self.desc_input.blockSignals(True)  # Block signals while setting text
+                self.desc_input.setText(current.data(0, Qt.ItemDataRole.UserRole) or "")
+                self.desc_input.blockSignals(False)  # Re-enable signals
+                # Create a unique connection for this item
+                self.desc_input.textChanged.connect(lambda: self.update_description(current))
+            else:
+                self.desc_input.clear()
+            options_enabled = current.childCount() > 0
+            self.options_btn.setEnabled(options_enabled)
         else:
             self.title_input.clear()
             self.desc_input.clear()
+            self.options_btn.setEnabled(False)
+
+        self.update_move_buttons()  # Add this line at the end
+
+    def update_description(self, item):
+        """Update description for a specific item"""
+        if item and item.childCount() == 0:
+            item.setData(0, Qt.ItemDataRole.UserRole, self.desc_input.toPlainText())
+            self.update_preview()
 
     def update_selected_item(self):
+        """Only handle title updates now"""
         current = self.tree.currentItem()
         if current:
             current.setText(0, self.title_input.text())
-            current.setData(0, Qt.ItemDataRole.UserRole, self.desc_input.toPlainText())
             self.update_preview()
 
     def show_options(self):
@@ -210,6 +254,7 @@ class WikiListBuilder(QMainWindow):
     def tree_to_dict(self):
         def process_item(item):
             if item.childCount() == 0:
+                # Only return description for leaf nodes (items)
                 return item.data(0, Qt.ItemDataRole.UserRole)
 
             result = {}
@@ -287,6 +332,56 @@ class WikiListBuilder(QMainWindow):
                     item = QTreeWidgetItem(parent)
                 item.setText(0, key)
                 item.setData(0, Qt.ItemDataRole.UserRole, value)
+
+    def copy_preview(self):
+        QApplication.clipboard().setText(self.preview.toPlainText())
+
+    def move_item_up(self):
+        current = self.tree.currentItem()
+        if not current:
+            return
+
+        parent = current.parent() or self.tree.invisibleRootItem()
+        current_index = parent.indexOfChild(current)
+
+        if current_index > 0:
+            # Remove and reinsert the item one position up
+            parent.takeChild(current_index)
+            parent.insertChild(current_index - 1, current)
+            self.tree.setCurrentItem(current)
+            self.update_preview()
+
+        self.update_move_buttons()
+
+    def move_item_down(self):
+        current = self.tree.currentItem()
+        if not current:
+            return
+
+        parent = current.parent() or self.tree.invisibleRootItem()
+        current_index = parent.indexOfChild(current)
+
+        if current_index < parent.childCount() - 1:
+            # Remove and reinsert the item one position down
+            parent.takeChild(current_index)
+            parent.insertChild(current_index + 1, current)
+            self.tree.setCurrentItem(current)
+            self.update_preview()
+
+        self.update_move_buttons()
+
+    def update_move_buttons(self):
+        current = self.tree.currentItem()
+        if not current:
+            self.move_up_btn.setEnabled(False)
+            self.move_down_btn.setEnabled(False)
+            return
+
+        parent = current.parent() or self.tree.invisibleRootItem()
+        current_index = parent.indexOfChild(current)
+
+        self.move_up_btn.setEnabled(current_index > 0)
+        self.move_down_btn.setEnabled(current_index < parent.childCount() - 1)
 
 
 if __name__ == "__main__":
