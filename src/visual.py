@@ -537,12 +537,13 @@ class WikiListBuilder(QMainWindow):
         current = self.tree.currentItem()
         if current:
             self.title_input.setText(current.text(0))
-            # Only show and enable description for items (leaves)
-            is_leaf = current.childCount() == 0
-            self.desc_label.setVisible(is_leaf)
-            self.desc_input.setVisible(is_leaf)
-            self.desc_input.setEnabled(is_leaf)
-            if is_leaf:
+            # Only show and enable description for items
+            item_type = current.data(0, Qt.ItemDataRole.UserRole + 2)
+            is_item = item_type == "item"
+            self.desc_label.setVisible(is_item)
+            self.desc_input.setVisible(is_item)
+            self.desc_input.setEnabled(is_item)
+            if is_item:
                 self.desc_input.blockSignals(True)
                 self.desc_input.setText(current.data(0, Qt.ItemDataRole.UserRole) or "")
                 self.desc_input.blockSignals(False)
@@ -550,9 +551,8 @@ class WikiListBuilder(QMainWindow):
             else:
                 self.desc_input.clear()
 
-            # Enable options only for subcategories
-            item_type = current.data(0, Qt.ItemDataRole.UserRole + 2)
-            self.options_btn.setEnabled(item_type == "subcategory" or item_type == "category")
+            # Enable options only for subcategories and categories
+            self.options_btn.setEnabled(item_type in ("subcategory", "category"))
         else:
             self.title_input.clear()
             self.desc_input.clear()
