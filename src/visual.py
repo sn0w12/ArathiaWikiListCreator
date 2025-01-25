@@ -235,6 +235,7 @@ class SaveSelectionDialog(QDialog):
 class WikiListBuilder(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.current_save_name = None  # Track current save name
 
         # Create saves directory if it doesn't exist
         os.makedirs("saves", exist_ok=True)
@@ -280,6 +281,7 @@ class WikiListBuilder(QMainWindow):
         self.list_title_input = QLineEdit("List of Items")  # Default title
         self.edit_titles_btn = QPushButton("Edit Titles")
         self.edit_titles_btn.clicked.connect(self.edit_titles)
+        self.list_title_input.textChanged.connect(self.on_title_changed)  # Track title changes
         title_layout.addWidget(title_label)
         title_layout.addWidget(self.list_title_input)
         title_layout.addWidget(self.edit_titles_btn)
@@ -344,7 +346,6 @@ class WikiListBuilder(QMainWindow):
 
         self.desc_label = QLabel("Description:")
         self.desc_input = QTextEdit()
-        # Remove the disconnect line - we'll handle connections in on_selection_changed
 
         # Preview
         preview_label = QLabel("Preview:")
@@ -374,6 +375,9 @@ class WikiListBuilder(QMainWindow):
             selected = dialog.get_selected()
             if selected:
                 self.load_from_save(selected)
+            else:
+                # Only add new category if we're creating a new list
+                self.clear_list(add_category=True)
 
     def get_safe_filename(self):
         """Convert title to safe filename"""
@@ -390,13 +394,29 @@ class WikiListBuilder(QMainWindow):
                 with gzip.open(save_path, "wt", encoding="utf-8") as f:
                     json.dump(data, f)
 
+    def on_title_changed(self):
+        """Handle title changes and remove old save"""
+        if self.current_save_name:
+            old_save_path = os.path.join("saves", f"{self.current_save_name}.json.gz")
+            try:
+                if os.path.exists(old_save_path):
+                    os.remove(old_save_path)
+            except Exception as e:
+                print(f"Error removing old save: {e}")
+
+        self.current_save_name = self.get_safe_filename()
+        self.auto_save()
+
     def load_from_save(self, name):
         """Load data from a saved file"""
         try:
             save_path = os.path.join("saves", f"{name}.json.gz")
             with gzip.open(save_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
+                # Clear the current list before loading new data
+                self.clear_list(add_category=False)
                 self.load_tree_data(data)
+                self.current_save_name = name  # Store current save name
                 self.update_preview()
                 self.auto_save()
         except Exception as e:
@@ -719,18 +739,20 @@ class WikiListBuilder(QMainWindow):
         self.move_up_btn.setEnabled(current_index > 0)
         self.move_down_btn.setEnabled(current_index < parent.childCount() - 1)
 
-    def clear_list(self):
-        """Clear all current list data and add empty category"""
+    def clear_list(self, add_category=False):
+        """Clear all current list data and optionally add empty category"""
         self.tree.clear()
         self.list_title_input.setText("List of Items")
         self.list_title_input.setProperty("titleData", None)
         self.collapsible_checkbox.setChecked(False)
+        self.current_save_name = None  # Reset current save name
 
-        # Add empty category
-        item = QTreeWidgetItem(self.tree)
-        item.setText(0, "New Category")
-        item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")
-        self.tree.setCurrentItem(item)
+        if add_category:
+            # Add empty category
+            item = QTreeWidgetItem(self.tree)
+            item.setText(0, "New Category")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")
+            self.tree.setCurrentItem(item)
 
         self.update_preview()
 
@@ -742,8 +764,8 @@ class WikiListBuilder(QMainWindow):
             if selected:
                 self.load_from_save(selected)
             else:
-                # Clear the current list when creating a new one
-                self.clear_list()
+                # Clear and add new category when creating a new list
+                self.clear_list(add_category=True)
 
 
 if __name__ == "__main__":
