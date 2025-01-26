@@ -1,6 +1,9 @@
 import os
 import re
 
+# Module-level cache for head content
+_HEAD_CONTENT_CACHE = None
+
 
 def parse_wiki_attributes(attr_str):
     """Parse MediaWiki style attributes into HTML attributes."""
@@ -103,8 +106,14 @@ def wiki_to_html_table(wiki_text):
     return "\n".join(html)
 
 
-def load_head_content():
-    """Loads the head content from head.html file with better path resolution."""
+def load_head_content(force_reload=False):
+    """Loads the head content from head.html file with caching support."""
+    global _HEAD_CONTENT_CACHE
+
+    # Return cached content unless force_reload is True
+    if _HEAD_CONTENT_CACHE is not None and not force_reload:
+        return _HEAD_CONTENT_CACHE
+
     possible_paths = [
         "./html/head.html",
         "html/head.html",
@@ -116,17 +125,19 @@ def load_head_content():
     for path in possible_paths:
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return f.read()
+                _HEAD_CONTENT_CACHE = f.read()
+                return _HEAD_CONTENT_CACHE
         except FileNotFoundError:
             continue
 
     # If no file is found, use default head content
     print("Head.html not found in any location. Using default head content.")
-    return """<head>
+    _HEAD_CONTENT_CACHE = """<head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="https://arathia.net/w/load.php?lang=en&amp;modules=site.styles&amp;only=styles&amp;skin=citizen">
     <title>Arathia Wiki Table</title>
 </head>"""
+    return _HEAD_CONTENT_CACHE
 
 
 def create_html_page(table_html):

@@ -538,61 +538,69 @@ class WikiListBuilder(QMainWindow):
         desc_height = int(screen.height() * 0.2)
         self.desc_input.setMaximumHeight(desc_height)
 
-        # Create vertical splitter for table and preview
-        table_preview_splitter = QSplitter(Qt.Orientation.Vertical)
+        # Create vertical splitter for HTML and text previews
+        preview_splitter = QSplitter(Qt.Orientation.Vertical)
         screen_height = QApplication.primaryScreen().geometry().height()
-        table_height = int(screen_height * 0.7)
-        preview_height = int(screen_height * 0.3)
+        html_height = int(screen_height * 0.7)
+        text_height = int(screen_height * 0.2)
 
-        # Table section
-        table_widget = QWidget()
-        table_layout = QVBoxLayout(table_widget)
-        table_layout.setContentsMargins(0, 0, 0, 0)
+        # HTML Preview section
+        html_widget = QWidget()
+        html_layout = QVBoxLayout(html_widget)
+        html_layout.setContentsMargins(0, 0, 0, 0)
+        html_layout.setSpacing(0)  # Remove spacing between widgets
 
-        table_label = QLabel("Data Table:")
-        self.table_widget = QTableWidget()
-        self.table_widget.setMinimumHeight(100)  # Reduced minimum height
+        html_label = QLabel("HTML Preview:")
+        html_label.setMaximumHeight(20)  # Limit label height
+        self.web_view = QWebEngineView()
+        self.web_view.setMinimumHeight(100)
 
-        # Set stretch mode for the header
-        header = self.table_widget.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
+        # Set initial blank page with background color
+        blank_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    background-color: #202124;
+                }
+            </style>
+        </head>
+        <body></body>
+        </html>
+        """
+        self.web_view.setHtml(blank_html)
 
-        table_layout.addWidget(table_label)
-        table_layout.addWidget(self.table_widget)
-        table_widget.setLayout(table_layout)
+        html_layout.addWidget(html_label)
+        html_layout.addWidget(self.web_view, 1)  # Add stretch factor
+        html_widget.setLayout(html_layout)
 
-        # Preview section
-        preview_widget = QWidget()
+        # Text Preview section
+        text_widget = QWidget()
+        text_layout = QVBoxLayout(text_widget)
+        text_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Fix the preview button layout by creating it before adding to right_layout
+        text_label = QLabel("Wiki Text:")
+        self.preview = QTextEdit()
+        self.preview.setReadOnly(True)
+        self.preview.setMinimumHeight(100)
+
+        # Preview buttons
         preview_button_layout = QHBoxLayout()
         self.copy_btn = QPushButton("Copy to Clipboard")
         self.copy_btn.clicked.connect(self.copy_preview)
-        self.html_preview_btn = QPushButton("HTML Preview")
-        self.html_preview_btn.clicked.connect(self.show_html_preview)
         preview_button_layout.addWidget(self.copy_btn)
-        preview_button_layout.addWidget(self.html_preview_btn)
 
-        # Remove old copy button layout since we're using the new one
-        preview_layout = QVBoxLayout(preview_widget)
-        preview_layout.setContentsMargins(0, 0, 0, 0)
-        preview_label = QLabel("Preview:")
-        self.preview = QTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setMinimumHeight(100)  # Reduced minimum height
+        text_layout.addWidget(text_label)
+        text_layout.addWidget(self.preview)
+        text_layout.addLayout(preview_button_layout)
 
-        preview_layout.addWidget(preview_label)
-        preview_layout.addWidget(self.preview)
-        preview_layout.addLayout(preview_button_layout)  # Add the new button layout here
-
-        # Remove duplicate copy button addition
-        preview_widget.setLayout(preview_layout)
-
-        # Add widgets to splitter
-        table_preview_splitter.addWidget(table_widget)
-        table_preview_splitter.addWidget(preview_widget)
-        table_preview_splitter.setSizes([table_height, preview_height])
+        # Add widgets to preview splitter
+        preview_splitter.addWidget(html_widget)
+        preview_splitter.addWidget(text_widget)
+        preview_splitter.setSizes([html_height, text_height])
 
         # Add everything to right panel
         for widget in (
@@ -600,7 +608,7 @@ class WikiListBuilder(QMainWindow):
             self.title_input,
             self.desc_label,
             self.desc_input,
-            table_preview_splitter,
+            preview_splitter,
         ):
             right_layout.addWidget(widget)
 
@@ -749,20 +757,12 @@ class WikiListBuilder(QMainWindow):
 
             self.loading_list = False
 
-            # Force complete UI update and resize
+            # Force complete UI update
             QApplication.processEvents()
-            QTimer.singleShot(100, lambda: self._finish_table_resize())
 
         except Exception as e:
             self.loading_list = False
             log(f"Error loading save: {e}", "ERROR")
-
-    def _finish_table_resize(self):
-        """Helper method to finish table resizing"""
-        self.table_widget.clearSpans()  # Clear existing spans
-        self.update_table(self.tree_to_dict())  # Rebuild table completely
-        self.table_widget.resizeRowsToContents()
-        self.adjust_table_columns()
 
     def execute_command(self, command):
         """Execute a command and add it to the undo stack"""
@@ -986,197 +986,15 @@ class WikiListBuilder(QMainWindow):
             title = data.pop("__title", "List of Items")
             collapsible = data.pop("__collapsible", False)
 
-            # Update table with the organized data
-            self.update_table(data)
-
+            # Create wiki text
             builder = ManualListBuilder(title, data, collapsible=collapsible)
-            self.preview.setText(builder.build())
+            wiki_text = builder.build()
+            self.preview.setText(wiki_text)
 
-    def resizeEvent(self, event):
-        """Handle window resize events"""
-        super().resizeEvent(event)
-        self.adjust_table_columns()
-
-    def adjust_table_columns(self):
-        """Adjust table columns to maintain proportions"""
-        if self.table_widget.columnCount() == 0:
-            return
-
-        total_width = self.table_widget.viewport().width() - 2  # Account for borders
-        remaining_width = total_width
-
-        # Set all columns except the last one according to proportions
-        for i in range(self.table_widget.columnCount() - 1):
-            # Skip if we don't have a proportion defined for this column
-            if i >= len(self.column_proportions):
-                break
-
-            width = int(total_width * (self.column_proportions[i] / 100.0))
-            self.table_widget.setColumnWidth(i, width)
-            remaining_width -= width
-
-        # Give remaining width to the last column
-        last_col = self.table_widget.columnCount() - 1
-        if last_col >= 0:
-            self.table_widget.setColumnWidth(last_col, remaining_width)
-
-    def update_table(self, data):
-        """Update the table widget with the organized data"""
-        self.table_widget.clear()
-        rows = []
-        max_depth = 0
-        category_items = {}
-        subcategory_spans = {}
-
-        def count_items(items, category="", subcategory_path=None, depth_options=None, current_depth=0):
-            nonlocal max_depth
-            if subcategory_path is None:
-                subcategory_path = []
-            if depth_options is None:
-                depth_options = []
-
-            total_items = 0
-            total_extra_depth = sum(depth_options)
-            effective_depth = current_depth + total_extra_depth
-            max_depth = max(max_depth, effective_depth)
-
-            for key, value in items.items():
-                if key in ["__metadata", "__options"]:
-                    continue
-
-                if isinstance(value, dict):
-                    item_type = value.get("__metadata", {}).get("type", "")
-                    options = value.get("__options", {})
-                    extra_depth = options.get("extra_depth", 0)
-                    current_depth_options = depth_options.copy()
-
-                    if item_type == "category":
-                        # For categories, start new depth_options list with its extra_depth
-                        current_depth_options = [extra_depth]
-                        sub_items = count_items(value, key, [], current_depth_options, 1)
-                        category_items[key] = sub_items
-                        total_items += sub_items
-                    elif item_type == "subcategory":
-                        # For subcategories, append extra_depth to the existing options
-                        current_depth_options.append(extra_depth)
-                        new_path = subcategory_path + [key]
-                        # Increment depth by 1 plus the sum of all extra depths encountered
-                        next_depth = current_depth + 1
-                        sub_items = count_items(value, category, new_path, current_depth_options, next_depth)
-                        path_tuple = (category, tuple(new_path))
-                        subcategory_spans[path_tuple] = sub_items
-                        total_items += sub_items
-                    elif item_type == "item":
-                        total_items += 1
-                        description = value.get("description", "")
-                        # Store item at current depth
-                        rows.append([category, subcategory_path, key, description, depth_options, current_depth])
-
-            return total_items
-
-        # Process the data and count items
-        count_items(data)
-
-        # Create headers based on max depth
-        headers = ["Category"]
-        for i in range(max_depth + 1):
-            headers.append(f"Level {i + 1}")
-
-        # Update layout
-        subcategory_width = 15 * max_depth  # Allocate 15% for each level
-        remaining_width = 100 - subcategory_width
-        self.column_proportions = [
-            20,  # Category
-            *[15] * max_depth,  # All levels
-            remaining_width,  # Description
-        ]
-
-        # Set up the table
-        self.table_widget.setRowCount(len(rows))
-        self.table_widget.setColumnCount(len(headers))
-        self.table_widget.setHorizontalHeaderLabels(headers)
-
-        # Track cells that are already part of a span
-        spanned_cells = set()
-
-        # Fill the table
-        for i, row in enumerate(rows):
-            category, subcategory_path, item, description, depth_options, item_depth = row
-            current_col = 1
-
-            # Handle category (always in first column)
-            if category and (i, 0) not in spanned_cells:
-                span = category_items.get(category, 1)
-                if span > 1:
-                    self.table_widget.setSpan(i, 0, span, 1)
-                    # Mark cells as spanned
-                    for row_idx in range(i, i + span):
-                        spanned_cells.add((row_idx, 0))
-                cat_item = QTableWidgetItem(category)
-                cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table_widget.setItem(i, 0, cat_item)
-
-            # Add empty columns for category extra_depth
-            category_extra_depth = depth_options[0] if depth_options else 0
-            for _ in range(category_extra_depth):
-                if (i, current_col) not in spanned_cells:
-                    empty_item = QTableWidgetItem("")
-                    empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table_widget.setItem(i, current_col, empty_item)
-                current_col += 1
-
-            # Handle subcategories
-            depth_used = 0
-            for depth, subcat in enumerate(subcategory_path):
-                col = current_col
-                path_tuple = (category, tuple(subcategory_path[: depth + 1]))
-
-                if (i, col) not in spanned_cells:
-                    span = subcategory_spans.get(path_tuple, 1)
-                    if span > 1:
-                        self.table_widget.setSpan(i, col, span, 1)
-                        # Mark cells as spanned
-                        for row_idx in range(i, i + span):
-                            spanned_cells.add((row_idx, col))
-
-                    subcat_item = QTableWidgetItem(subcat)
-                    subcat_item.setFlags(subcat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table_widget.setItem(i, col, subcat_item)
-
-                # Add empty columns for subcategory extra_depth
-                if depth + 1 < len(depth_options):
-                    extra_depth = depth_options[depth + 1]
-                    for _ in range(extra_depth):
-                        current_col += 1
-                        if (i, current_col) not in spanned_cells:
-                            empty_item = QTableWidgetItem("")
-                            empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                            self.table_widget.setItem(i, current_col, empty_item)
-
-                current_col += 1
-                depth_used += 1
-
-            # Add item and description only if the cells aren't part of a span
-            if item and (i, current_col) not in spanned_cells:
-                item_widget = QTableWidgetItem(item)
-                item_widget.setFlags(item_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table_widget.setItem(i, current_col, item_widget)
-
-                if (i, current_col + 1) not in spanned_cells:
-                    desc_widget = QTableWidgetItem(description)
-                    desc_widget.setFlags(desc_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table_widget.setItem(i, current_col + 1, desc_widget)
-
-            # Clear any remaining columns in this row
-            for col in range(current_col + 2, self.table_widget.columnCount()):
-                if (i, col) not in spanned_cells:
-                    empty_item = QTableWidgetItem("")
-                    empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table_widget.setItem(i, col, empty_item)
-
-        # Adjust table appearance
-        self.table_widget.resizeRowsToContents()
-        self.adjust_table_columns()
+            # Update HTML preview
+            table_html = wiki_to_html_table(wiki_text)
+            full_html = create_html_page(table_html)
+            self.web_view.setHtml(full_html)
 
     def export_list(self):
         """Renamed from save_list - exports to external file"""
@@ -1281,13 +1099,6 @@ class WikiListBuilder(QMainWindow):
             )
             self.execute_command(command)
             self.tree.setCurrentItem(current)
-
-            # Force complete table update
-            self.table_widget.clearSpans()  # Clear all spans
-            self.update_table(self.tree_to_dict())  # Rebuild table completely
-            self.table_widget.resizeRowsToContents()
-            self.adjust_table_columns()
-
             self.update_move_buttons()
 
     def update_move_buttons(self):
@@ -1363,12 +1174,6 @@ class WikiListBuilder(QMainWindow):
         for item in items:
             parent.removeChild(item)
             parent.addChild(item)
-
-        # Force complete table update
-        self.table_widget.clearSpans()  # Clear all spans
-        self.update_table(self.tree_to_dict())  # Rebuild table completely
-        self.table_widget.resizeRowsToContents()
-        self.adjust_table_columns()
 
         self.update_preview()
         self.auto_save()
@@ -1605,27 +1410,6 @@ class WikiListBuilder(QMainWindow):
                 json.dump(self.settings, f, indent=4)
         except Exception as e:
             log(f"Error saving settings: {e}", "ERROR")
-
-    def show_html_preview(self):
-        """Show HTML preview in a new window"""
-        preview_window = QMainWindow(self)
-        preview_window.setWindowTitle("HTML Preview")
-        preview_window.setGeometry(100, 100, 800, 600)
-
-        web_view = QWebEngineView()
-        data = self.tree_to_dict()
-        if data:
-            title = data.pop("__title", "List of Items")
-            collapsible = data.pop("__collapsible", False)
-            builder = ManualListBuilder(title, data, collapsible=collapsible)
-            table_text = builder.build()
-            table_html = wiki_to_html_table(table_text)
-
-            full_html = create_html_page(table_html)
-            web_view.setHtml(full_html)
-
-        preview_window.setCentralWidget(web_view)
-        preview_window.show()
 
 
 if __name__ == "__main__":
