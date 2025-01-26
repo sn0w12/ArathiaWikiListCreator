@@ -1007,9 +1007,8 @@ class WikiListBuilder(QMainWindow):
         self.table_widget.setColumnCount(len(headers))
         self.table_widget.setHorizontalHeaderLabels(headers)
 
-        # Track processed spans
-        processed_categories = set()
-        processed_subcategories = {i: set() for i in range(max_depth)}
+        # Track cells that are already part of a span
+        spanned_cells = set()
 
         # Fill the table
         for i, row in enumerate(rows):
@@ -1017,36 +1016,39 @@ class WikiListBuilder(QMainWindow):
             current_col = 1
 
             # Handle category (always in first column)
-            if category and i not in processed_categories:
+            if category and (i, 0) not in spanned_cells:
                 span = category_items.get(category, 1)
                 if span > 1:
                     self.table_widget.setSpan(i, 0, span, 1)
+                    # Mark cells as spanned
+                    for row_idx in range(i, i + span):
+                        spanned_cells.add((row_idx, 0))
                 cat_item = QTableWidgetItem(category)
                 cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table_widget.setItem(i, 0, cat_item)
-                processed_categories.add(i)
 
-                # Add empty columns for category extra_depth
-                category_extra_depth = depth_options[0] if depth_options else 0
-                for _ in range(category_extra_depth):
+            # Add empty columns for category extra_depth
+            category_extra_depth = depth_options[0] if depth_options else 0
+            for _ in range(category_extra_depth):
+                if (i, current_col) not in spanned_cells:
                     empty_item = QTableWidgetItem("")
                     empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     self.table_widget.setItem(i, current_col, empty_item)
-                    current_col += 1
+                current_col += 1
 
             # Handle subcategories
             depth_used = 0
             for depth, subcat in enumerate(subcategory_path):
                 col = current_col
                 path_tuple = (category, tuple(subcategory_path[: depth + 1]))
-                span_key = (i, depth_used)
 
-                if span_key not in processed_subcategories[depth_used]:
+                if (i, col) not in spanned_cells:
                     span = subcategory_spans.get(path_tuple, 1)
                     if span > 1:
                         self.table_widget.setSpan(i, col, span, 1)
-                        for j in range(i, i + span):
-                            processed_subcategories[depth_used].add((j, depth_used))
+                        # Mark cells as spanned
+                        for row_idx in range(i, i + span):
+                            spanned_cells.add((row_idx, col))
 
                     subcat_item = QTableWidgetItem(subcat)
                     subcat_item.setFlags(subcat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1057,29 +1059,31 @@ class WikiListBuilder(QMainWindow):
                     extra_depth = depth_options[depth + 1]
                     for _ in range(extra_depth):
                         current_col += 1
-                        empty_item = QTableWidgetItem("")
-                        empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                        self.table_widget.setItem(i, current_col, empty_item)
+                        if (i, current_col) not in spanned_cells:
+                            empty_item = QTableWidgetItem("")
+                            empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                            self.table_widget.setItem(i, current_col, empty_item)
 
                 current_col += 1
                 depth_used += 1
 
-            # Add item in its designated column and description in the next column
-            if item:
+            # Add item and description only if the cells aren't part of a span
+            if item and (i, current_col) not in spanned_cells:
                 item_widget = QTableWidgetItem(item)
                 item_widget.setFlags(item_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table_widget.setItem(i, current_col, item_widget)
 
-                # Place description in the next column
-                desc_widget = QTableWidgetItem(description)
-                desc_widget.setFlags(desc_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table_widget.setItem(i, current_col + 1, desc_widget)
+                if (i, current_col + 1) not in spanned_cells:
+                    desc_widget = QTableWidgetItem(description)
+                    desc_widget.setFlags(desc_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table_widget.setItem(i, current_col + 1, desc_widget)
 
             # Clear any remaining columns in this row
             for col in range(current_col + 2, self.table_widget.columnCount()):
-                empty_item = QTableWidgetItem("")
-                empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table_widget.setItem(i, col, empty_item)
+                if (i, col) not in spanned_cells:
+                    empty_item = QTableWidgetItem("")
+                    empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table_widget.setItem(i, col, empty_item)
 
         # Adjust table appearance
         self.table_widget.resizeRowsToContents()
