@@ -381,6 +381,9 @@ class WikiListBuilder(QMainWindow):
 
         # Create vertical splitter for table and preview
         table_preview_splitter = QSplitter(Qt.Orientation.Vertical)
+        screen_height = QApplication.primaryScreen().geometry().height()
+        table_height = int(screen_height * 0.7)
+        preview_height = int(screen_height * 0.3)
 
         # Table section
         table_widget = QWidget()
@@ -421,6 +424,7 @@ class WikiListBuilder(QMainWindow):
         # Add widgets to splitter
         table_preview_splitter.addWidget(table_widget)
         table_preview_splitter.addWidget(preview_widget)
+        table_preview_splitter.setSizes([table_height, preview_height])
 
         # Add everything to right panel
         for widget in (
