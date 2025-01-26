@@ -19,6 +19,9 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QListWidget,
     QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QShortcut, QKeySequence  # Add QShortcut and QKeySequence
@@ -371,6 +374,19 @@ class WikiListBuilder(QMainWindow):
         self.desc_label = QLabel("Description:")
         self.desc_input = QTextEdit()
 
+        # Add table widget
+        table_label = QLabel("Data Table:")
+        self.table_widget = QTableWidget()
+        self.table_widget.setMinimumHeight(200)
+
+        # Set stretch mode for the header
+        header = self.table_widget.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)  # Make last column stretch
+
+        # Default column proportions (percentages)
+        self.base_column_proportions = [20, 20, 30]  # [Category, Item, Description]
+
         # Preview
         preview_label = QLabel("Preview:")
         self.preview = QTextEdit()
@@ -385,9 +401,11 @@ class WikiListBuilder(QMainWindow):
             self.title_input,
             self.desc_label,
             self.desc_input,
+            table_label,
+            self.table_widget,
             preview_label,
             self.preview,
-            self.copy_btn,  # Add the copy button to the layout
+            self.copy_btn,
         ):
             right_layout.addWidget(widget)
 
@@ -651,8 +669,181 @@ class WikiListBuilder(QMainWindow):
         if data:
             title = data.pop("__title", "List of Items")
             collapsible = data.pop("__collapsible", False)
+
+            # Update table with the organized data
+            self.update_table(data)
+
             builder = ManualListBuilder(title, data, collapsible=collapsible)
             self.preview.setText(builder.build())
+
+    def resizeEvent(self, event):
+        """Handle window resize events"""
+        super().resizeEvent(event)
+        self.adjust_table_columns()
+
+    def adjust_table_columns(self):
+        """Adjust table columns to maintain proportions"""
+        if self.table_widget.columnCount() == 0:
+            return
+
+        total_width = self.table_widget.viewport().width()
+        for i in range(self.table_widget.columnCount()):
+            width = int(total_width * self.column_proportions[i] / 100)
+            self.table_widget.setColumnWidth(i, width)
+
+    def update_table(self, data):
+        """Update the table widget with the organized data"""
+        self.table_widget.clear()
+        rows = []
+        max_depth = 0
+        category_items = {}
+        subcategory_spans = {}
+
+        def count_items(items, category="", subcategory_path=None, depth_options=None, current_depth=0):
+            nonlocal max_depth
+            if subcategory_path is None:
+                subcategory_path = []
+            if depth_options is None:
+                depth_options = []
+
+            total_items = 0
+            total_extra_depth = sum(depth_options)
+            effective_depth = current_depth + total_extra_depth
+            max_depth = max(max_depth, effective_depth)
+
+            for key, value in items.items():
+                if key in ["__metadata", "__options"]:
+                    continue
+
+                if isinstance(value, dict):
+                    item_type = value.get("__metadata", {}).get("type", "")
+                    options = value.get("__options", {})
+                    extra_depth = options.get("extra_depth", 0)
+                    current_depth_options = depth_options.copy()
+
+                    if item_type == "category":
+                        # For categories, start new depth_options list with its extra_depth
+                        current_depth_options = [extra_depth]
+                        sub_items = count_items(value, key, [], current_depth_options, 1)
+                        category_items[key] = sub_items
+                        total_items += sub_items
+                    elif item_type == "subcategory":
+                        # For subcategories, append extra_depth to the existing options
+                        current_depth_options.append(extra_depth)
+                        new_path = subcategory_path + [key]
+                        # Increment depth by 1 plus the sum of all extra depths encountered
+                        next_depth = current_depth + 1
+                        sub_items = count_items(value, category, new_path, current_depth_options, next_depth)
+                        path_tuple = (category, tuple(new_path))
+                        subcategory_spans[path_tuple] = sub_items
+                        total_items += sub_items
+                    elif item_type == "item":
+                        total_items += 1
+                        description = value.get("description", "")
+                        # Store item at current depth
+                        rows.append([category, subcategory_path, key, description, depth_options, current_depth])
+
+            return total_items
+
+        # Process the data and count items
+        count_items(data)
+
+        # Create headers based on max depth
+        headers = ["Category"]
+        for i in range(max_depth + 1):
+            headers.append(f"Level {i + 1}")
+
+        # Update layout
+        subcategory_width = 15 * max_depth  # Allocate 15% for each level
+        remaining_width = 100 - subcategory_width
+        self.column_proportions = [
+            20,  # Category
+            *[15] * max_depth,  # All levels
+            remaining_width,  # Description
+        ]
+
+        # Set up the table
+        self.table_widget.setRowCount(len(rows))
+        self.table_widget.setColumnCount(len(headers))
+        self.table_widget.setHorizontalHeaderLabels(headers)
+
+        # Track processed spans
+        processed_categories = set()
+        processed_subcategories = {i: set() for i in range(max_depth)}
+
+        # Fill the table
+        for i, row in enumerate(rows):
+            category, subcategory_path, item, description, depth_options, item_depth = row
+            current_col = 1
+
+            # Handle category (always in first column)
+            if category and i not in processed_categories:
+                span = category_items.get(category, 1)
+                if span > 1:
+                    self.table_widget.setSpan(i, 0, span, 1)
+                cat_item = QTableWidgetItem(category)
+                cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table_widget.setItem(i, 0, cat_item)
+                processed_categories.add(i)
+
+                # Add empty columns for category extra_depth
+                category_extra_depth = depth_options[0] if depth_options else 0
+                for _ in range(category_extra_depth):
+                    empty_item = QTableWidgetItem("")
+                    empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table_widget.setItem(i, current_col, empty_item)
+                    current_col += 1
+
+            # Handle subcategories
+            depth_used = 0
+            for depth, subcat in enumerate(subcategory_path):
+                col = current_col
+                path_tuple = (category, tuple(subcategory_path[: depth + 1]))
+                span_key = (i, depth_used)
+
+                if span_key not in processed_subcategories[depth_used]:
+                    span = subcategory_spans.get(path_tuple, 1)
+                    if span > 1:
+                        self.table_widget.setSpan(i, col, span, 1)
+                        for j in range(i, i + span):
+                            processed_subcategories[depth_used].add((j, depth_used))
+
+                    subcat_item = QTableWidgetItem(subcat)
+                    subcat_item.setFlags(subcat_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table_widget.setItem(i, col, subcat_item)
+
+                # Add empty columns for subcategory extra_depth
+                if depth + 1 < len(depth_options):
+                    extra_depth = depth_options[depth + 1]
+                    for _ in range(extra_depth):
+                        current_col += 1
+                        empty_item = QTableWidgetItem("")
+                        empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                        self.table_widget.setItem(i, current_col, empty_item)
+
+                current_col += 1
+                depth_used += 1
+
+            # Add item in its designated column and description in the next column
+            if item:
+                item_widget = QTableWidgetItem(item)
+                item_widget.setFlags(item_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table_widget.setItem(i, current_col, item_widget)
+
+                # Place description in the next column
+                desc_widget = QTableWidgetItem(description)
+                desc_widget.setFlags(desc_widget.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table_widget.setItem(i, current_col + 1, desc_widget)
+
+            # Clear any remaining columns in this row
+            for col in range(current_col + 2, self.table_widget.columnCount()):
+                empty_item = QTableWidgetItem("")
+                empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table_widget.setItem(i, col, empty_item)
+
+        # Adjust table appearance
+        self.table_widget.resizeRowsToContents()
+        self.adjust_table_columns()
 
     def export_list(self):
         """Renamed from save_list - exports to external file"""
