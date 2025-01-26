@@ -34,6 +34,8 @@ import qdarktheme
 import json
 import ctypes
 import uuid  # Add this import at the top with other imports
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from html_converter import create_html_page, wiki_to_html_table
 
 init()
 
@@ -562,20 +564,29 @@ class WikiListBuilder(QMainWindow):
 
         # Preview section
         preview_widget = QWidget()
+
+        # Fix the preview button layout by creating it before adding to right_layout
+        preview_button_layout = QHBoxLayout()
+        self.copy_btn = QPushButton("Copy to Clipboard")
+        self.copy_btn.clicked.connect(self.copy_preview)
+        self.html_preview_btn = QPushButton("HTML Preview")
+        self.html_preview_btn.clicked.connect(self.show_html_preview)
+        preview_button_layout.addWidget(self.copy_btn)
+        preview_button_layout.addWidget(self.html_preview_btn)
+
+        # Remove old copy button layout since we're using the new one
         preview_layout = QVBoxLayout(preview_widget)
         preview_layout.setContentsMargins(0, 0, 0, 0)
-
         preview_label = QLabel("Preview:")
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setMinimumHeight(100)  # Reduced minimum height
 
-        self.copy_btn = QPushButton("Copy to Clipboard")
-        self.copy_btn.clicked.connect(self.copy_preview)
-
         preview_layout.addWidget(preview_label)
         preview_layout.addWidget(self.preview)
-        preview_layout.addWidget(self.copy_btn)
+        preview_layout.addLayout(preview_button_layout)  # Add the new button layout here
+
+        # Remove duplicate copy button addition
         preview_widget.setLayout(preview_layout)
 
         # Add widgets to splitter
@@ -1595,13 +1606,36 @@ class WikiListBuilder(QMainWindow):
         except Exception as e:
             log(f"Error saving settings: {e}", "ERROR")
 
+    def show_html_preview(self):
+        """Show HTML preview in a new window"""
+        preview_window = QMainWindow(self)
+        preview_window.setWindowTitle("HTML Preview")
+        preview_window.setGeometry(100, 100, 800, 600)
+
+        web_view = QWebEngineView()
+        data = self.tree_to_dict()
+        if data:
+            title = data.pop("__title", "List of Items")
+            collapsible = data.pop("__collapsible", False)
+            builder = ManualListBuilder(title, data, collapsible=collapsible)
+            table_text = builder.build()
+            table_html = wiki_to_html_table(table_text)
+
+            full_html = create_html_page(table_html)
+            web_view.setHtml(full_html)
+
+        preview_window.setCentralWidget(web_view)
+        preview_window.show()
+
 
 if __name__ == "__main__":
-    app = QApplication([])
+    import sys
+
+    app = QApplication(sys.argv)  # Pass sys.argv to QApplication
     myappid = "mycompany.myproduct.subproduct.version"  # arbitrary string
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
     qdarktheme.setup_theme()
     window = WikiListBuilder(skip_initial_load=True)
     window.show()
     QTimer.singleShot(100, window.show_initial_save_dialog)
-    app.exec()
+    sys.exit(app.exec())  # Use sys.exit for proper cleanup
