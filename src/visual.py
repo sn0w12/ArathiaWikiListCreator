@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QMenu,
+    QGroupBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QAction
@@ -348,6 +349,71 @@ class TreeCommand(Command):
             current_parent.insertChild(self.old_data["index"], self.item)
 
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setWindowIcon(QIcon("img/arathia.ico"))
+        self.setModal(True)
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout(self)
+
+        # Save Directory Section
+        save_group = QGroupBox("Save Directory")
+        save_layout = QHBoxLayout()
+
+        self.save_dir_input = QLineEdit()
+        self.save_dir_input.setText(os.path.abspath("saves"))
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_save_dir)
+
+        save_layout.addWidget(self.save_dir_input)
+        save_layout.addWidget(browse_btn)
+        save_group.setLayout(save_layout)
+        layout.addWidget(save_group)
+
+        # Auto-save Section
+        auto_save_group = QGroupBox("Auto-save")
+        auto_save_layout = QVBoxLayout()
+
+        self.auto_save_checkbox = QCheckBox("Enable auto-save")
+        self.auto_save_checkbox.setChecked(True)
+
+        auto_save_layout.addWidget(self.auto_save_checkbox)
+        auto_save_group.setLayout(auto_save_layout)
+        layout.addWidget(auto_save_group)
+
+        # Default List Options Section
+        default_options_group = QGroupBox("Default List Options")
+        default_options_layout = QVBoxLayout()
+
+        self.default_collapsible = QCheckBox("New lists are collapsible by default")
+        default_options_layout.addWidget(self.default_collapsible)
+
+        default_options_group.setLayout(default_options_layout)
+        layout.addWidget(default_options_group)
+
+        # Buttons
+        button_box = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        cancel_btn = QPushButton("Cancel")
+
+        save_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+
+        button_box.addWidget(save_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+
+    def browse_save_dir(self):
+        dir_path = QFileDialog.getExistingDirectory(
+            self, "Select Save Directory", self.save_dir_input.text(), QFileDialog.Option.ShowDirsOnly
+        )
+        if dir_path:
+            self.save_dir_input.setText(dir_path)
+
+
 class WikiListBuilder(QMainWindow):
     def __init__(self, skip_initial_load=False):
         super().__init__()
@@ -359,8 +425,15 @@ class WikiListBuilder(QMainWindow):
         self.target_save_name = None  # Add new variable to track target save name
         self.save_id = None  # Add save_id to track the unique identifier
 
+        self.settings = {
+            "save_directory": os.path.abspath("saves"),
+            "auto_save_enabled": True,
+            "default_collapsible": False,
+        }
+        self.load_settings()
+
         # Create saves directory if it doesn't exist
-        os.makedirs("saves", exist_ok=True)
+        os.makedirs(self.settings["save_directory"], exist_ok=True)
 
         # Initialize UI first
         self.setWindowTitle("Wiki List Builder")
@@ -604,6 +677,11 @@ class WikiListBuilder(QMainWindow):
         view_menu.addAction(collapse_empty_action)
         view_menu.addSeparator()
 
+        # Add Options Menu
+        options_menu = menubar.addMenu("Options")
+        settings_action = options_menu.addAction("Settings")
+        settings_action.triggered.connect(self.show_settings_dialog)
+
     def show_initial_save_dialog(self):
         """Show save selection dialog for initial load"""
         dialog = SaveSelectionDialog()
@@ -622,7 +700,7 @@ class WikiListBuilder(QMainWindow):
 
     def auto_save(self):
         """Automatically save the current state"""
-        if not self.auto_save_enabled or self.loading_list:
+        if not self.settings["auto_save_enabled"] or self.loading_list:
             log("Skipping auto-save", "DEBUG")
             return
 
@@ -631,7 +709,7 @@ class WikiListBuilder(QMainWindow):
 
         data = self.tree_to_dict()
         if data:
-            save_path = os.path.join("saves", f"{self.save_id}.json.gz")
+            save_path = os.path.join(self.settings["save_directory"], f"{self.save_id}.json.gz")
             with gzip.open(save_path, "wt", encoding="utf-8") as f:
                 json.dump(data, f)
             log(f"Saved list to {save_path}", "INFO")
@@ -644,7 +722,7 @@ class WikiListBuilder(QMainWindow):
     def load_from_save(self, save_id):
         """Load data from a saved file"""
         try:
-            save_path = os.path.join("saves", f"{save_id}.json.gz")
+            save_path = os.path.join(self.settings["save_directory"], f"{save_id}.json.gz")
             self.loading_list = True
             self.save_id = save_id  # Store the save ID
 
@@ -1222,7 +1300,7 @@ class WikiListBuilder(QMainWindow):
         self.tree.clear()
         self.list_title_input.setText("List of Items")
         self.list_title_input.setProperty("titleData", None)
-        self.collapsible_checkbox.setChecked(False)
+        self.collapsible_checkbox.setChecked(self.settings["default_collapsible"])
 
         if add_category:
             # Generate new unique ID for the list
@@ -1421,6 +1499,101 @@ class WikiListBuilder(QMainWindow):
         item.setExpanded(expand)
         for i in range(item.childCount()):
             self.expand_collapse_recursive(item.child(i), expand)
+
+    def show_settings_dialog(self):
+        dialog = SettingsDialog(self)
+
+        # Set current settings
+        dialog.save_dir_input.setText(self.settings["save_directory"])
+        dialog.auto_save_checkbox.setChecked(self.settings["auto_save_enabled"])
+        dialog.default_collapsible.setChecked(self.settings["default_collapsible"])
+
+        if dialog.exec():
+            # Save new settings
+            old_save_dir = self.settings["save_directory"]
+            new_save_dir = dialog.save_dir_input.text()
+
+            if old_save_dir != new_save_dir:
+                try:
+                    # Create new save directory if it doesn't exist
+                    os.makedirs(new_save_dir, exist_ok=True)
+
+                    if os.path.exists(old_save_dir):
+                        # Ask user if they want to copy existing saves
+                        copy_files = (
+                            QMessageBox.question(
+                                self,
+                                "Copy Saves",
+                                "Do you want to copy existing saves to the new directory?",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            )
+                            == QMessageBox.StandardButton.Yes
+                        )
+
+                        if copy_files:
+                            import shutil
+
+                            for file in os.listdir(old_save_dir):
+                                if file.endswith(".json.gz"):
+                                    old_path = os.path.join(old_save_dir, file)
+                                    new_path = os.path.join(new_save_dir, file)
+                                    if os.path.exists(new_path):
+                                        if (
+                                            QMessageBox.question(
+                                                self,
+                                                "File Exists",
+                                                f"File {file} already exists in new location. Overwrite?",
+                                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            )
+                                            == QMessageBox.StandardButton.No
+                                        ):
+                                            continue
+                                    shutil.copy2(old_path, new_path)
+
+                            # Ask if user wants to delete files from old directory
+                            if (
+                                QMessageBox.question(
+                                    self,
+                                    "Delete Old Files",
+                                    "Do you want to delete the saves from the old directory?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                )
+                                == QMessageBox.StandardButton.Yes
+                            ):
+                                for file in os.listdir(old_save_dir):
+                                    if file.endswith(".json.gz"):
+                                        os.remove(os.path.join(old_save_dir, file))
+
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Error copying files: {str(e)}")
+
+            # Update settings
+            self.settings.update(
+                {
+                    "save_directory": new_save_dir,
+                    "auto_save_enabled": dialog.auto_save_checkbox.isChecked(),
+                    "default_collapsible": dialog.default_collapsible.isChecked(),
+                }
+            )
+
+            self.save_settings()
+
+    def load_settings(self):
+        try:
+            if os.path.exists("settings.json"):
+                with open("settings.json", "r") as f:
+                    self.settings.update(json.load(f))
+                    # Ensure save directory exists
+                    os.makedirs(self.settings["save_directory"], exist_ok=True)
+        except Exception as e:
+            log(f"Error loading settings: {e}", "ERROR")
+
+    def save_settings(self):
+        try:
+            with open("settings.json", "w") as f:
+                json.dump(self.settings, f, indent=4)
+        except Exception as e:
+            log(f"Error saving settings: {e}", "ERROR")
 
 
 if __name__ == "__main__":
