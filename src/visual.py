@@ -1192,6 +1192,13 @@ class WikiListBuilder(QMainWindow):
             )
             self.execute_command(command)
             self.tree.setCurrentItem(current)
+
+            # Force complete table update
+            self.table_widget.clearSpans()  # Clear all spans
+            self.update_table(self.tree_to_dict())  # Rebuild table completely
+            self.table_widget.resizeRowsToContents()
+            self.adjust_table_columns()
+
             self.update_move_buttons()
 
     def update_move_buttons(self):
@@ -1253,6 +1260,30 @@ class WikiListBuilder(QMainWindow):
                 self.clear_list(add_category=True)
                 self.auto_save_enabled = True
 
+    def sort_category_items(self, parent, ascending=True):
+        """Sort the direct children of a category or subcategory"""
+        # Get all children
+        items = []
+        for i in range(parent.childCount()):
+            items.append(parent.child(i))
+
+        # Sort items by text
+        items.sort(key=lambda x: x.text(0).lower(), reverse=not ascending)
+
+        # Remove and re-add items in sorted order
+        for item in items:
+            parent.removeChild(item)
+            parent.addChild(item)
+
+        # Force complete table update
+        self.table_widget.clearSpans()  # Clear all spans
+        self.update_table(self.tree_to_dict())  # Rebuild table completely
+        self.table_widget.resizeRowsToContents()
+        self.adjust_table_columns()
+
+        self.update_preview()
+        self.auto_save()
+
     def show_context_menu(self, position):
         item = self.tree.itemAt(position)
         if not item:
@@ -1294,16 +1325,13 @@ class WikiListBuilder(QMainWindow):
             collapse_all_action = menu.addAction("Collapse All")
             collapse_all_action.triggered.connect(lambda: self.expand_collapse_recursive(item, False))
 
+            # Add sort menu before the separator for movement actions
             menu.addSeparator()
-            # Add actions
-            add_menu = menu.addMenu("Add")
-            if item_type == "category":
-                add_category_action = add_menu.addAction("Category")
-                add_category_action.triggered.connect(self.add_category)
-            add_subcategory_action = add_menu.addAction("Subcategory")
-            add_subcategory_action.triggered.connect(self.add_subcategory)
-            add_item_action = add_menu.addAction("Item")
-            add_item_action.triggered.connect(self.add_item)
+            sort_menu = menu.addMenu("Sort Items")
+            sort_ascending = sort_menu.addAction("Sort A to Z")
+            sort_descending = sort_menu.addAction("Sort Z to A")
+            sort_ascending.triggered.connect(lambda: self.sort_category_items(item, True))
+            sort_descending.triggered.connect(lambda: self.sort_category_items(item, False))
 
         # Movement actions for all types based on current position
         menu.addSeparator()
