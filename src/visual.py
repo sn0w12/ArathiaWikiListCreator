@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QShortcut, QKeySequence  # Add QShortcut and QKeySequence
+from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QAction  # Add QAction import
 from list_builder import ManualListBuilder
 from datetime import datetime
 from colorama import init, Fore, Style
@@ -255,9 +255,76 @@ class SaveSelectionDialog(QDialog):
         return None
 
 
+# Add Command class below imports and above existing classes
+class Command:
+    def __init__(self, description):
+        self.description = description
+
+    def do(self):
+        pass
+
+    def undo(self):
+        pass
+
+
+class TreeCommand(Command):
+    def __init__(self, description, tree_widget, action_type, item=None, parent=None, old_data=None, new_data=None):
+        super().__init__(description)
+        self.tree = tree_widget
+        self.action_type = action_type
+        self.item = item
+        self.parent = parent
+        self.old_data = old_data
+        self.new_data = new_data
+        self.old_index = None if not item else (parent or tree_widget.invisibleRootItem()).indexOfChild(item)
+
+    def do(self):
+        if self.action_type == "add":
+            if self.parent:
+                self.parent.addChild(self.item)
+            else:
+                self.tree.addTopLevelItem(self.item)
+        elif self.action_type == "remove":
+            if self.parent:
+                self.parent.takeChild(self.parent.indexOfChild(self.item))
+            else:
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(self.item))
+        elif self.action_type == "modify":
+            self.item.setText(0, self.new_data.get("text", ""))
+            self.item.setData(0, Qt.ItemDataRole.UserRole, self.new_data.get("description", ""))
+        elif self.action_type == "move":
+            current_parent = self.item.parent() or self.tree.invisibleRootItem()
+            current_index = current_parent.indexOfChild(self.item)
+            current_parent.takeChild(current_index)
+            if self.new_data["index"] >= 0:
+                current_parent.insertChild(self.new_data["index"], self.item)
+
+    def undo(self):
+        if self.action_type == "add":
+            if self.parent:
+                self.parent.takeChild(self.parent.indexOfChild(self.item))
+            else:
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(self.item))
+        elif self.action_type == "remove":
+            if self.parent:
+                self.parent.insertChild(self.old_index, self.item)
+            else:
+                self.tree.insertTopLevelItem(self.old_index, self.item)
+        elif self.action_type == "modify":
+            self.item.setText(0, self.old_data.get("text", ""))
+            self.item.setData(0, Qt.ItemDataRole.UserRole, self.old_data.get("description", ""))
+        elif self.action_type == "move":
+            current_parent = self.item.parent() or self.tree.invisibleRootItem()
+            current_parent.takeChild(current_parent.indexOfChild(self.item))
+            current_parent.insertChild(self.old_data["index"], self.item)
+
+
 class WikiListBuilder(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.undo_stack = []
+        self.redo_stack = []
+
         self.current_save_name = None  # Track current save name
         self.loading_list = False  # Add flag to track when we're loading a list
         self.target_save_name = None  # Add new variable to track target save name
@@ -456,6 +523,22 @@ class WikiListBuilder(QMainWindow):
 
         self.showMaximized()
 
+        # Add undo/redo actions to menu bar
+        menubar = self.menuBar()
+        edit_menu = menubar.addMenu("Edit")
+
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut("Ctrl+Z")
+        self.undo_action.triggered.connect(self.undo)
+        self.undo_action.setEnabled(False)  # Initially disabled
+        edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut("Ctrl+Y")
+        self.redo_action.triggered.connect(self.redo)
+        self.redo_action.setEnabled(False)  # Initially disabled
+        edit_menu.addAction(self.redo_action)
+
     def get_safe_filename(self):
         """Convert title to safe filename"""
         title = self.list_title_input.text().split("|")[0].strip()
@@ -500,6 +583,10 @@ class WikiListBuilder(QMainWindow):
             self.loading_list = True  # Set flag before loading
             self.target_save_name = name  # Store target name temporarily
 
+            # Clear undo/redo stacks before loading new data
+            self.undo_stack.clear()
+            self.redo_stack.clear()
+
             with gzip.open(save_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
                 self.clear_list(add_category=False)
@@ -528,47 +615,78 @@ class WikiListBuilder(QMainWindow):
         self.table_widget.resizeRowsToContents()
         self.adjust_table_columns()
 
-    def add_category(self):
-        item = QTreeWidgetItem(self.tree)
-        item.setText(0, "New Category")
-        item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")  # Store item type
-        self.tree.setCurrentItem(item)
+    def execute_command(self, command):
+        """Execute a command and add it to the undo stack"""
+        command.do()
+        self.undo_stack.append(command)
+        self.redo_stack.clear()
         self.update_preview()
         self.auto_save()
+        # Update action states
+        self.undo_action.setEnabled(True)
+        self.redo_action.setEnabled(False)
+
+    def undo(self):
+        """Undo the last command"""
+        if self.undo_stack:
+            command = self.undo_stack.pop()
+            command.undo()
+            self.redo_stack.append(command)
+            self.update_preview()
+            self.auto_save()
+            # Update action states
+            self.undo_action.setEnabled(bool(self.undo_stack))
+            self.redo_action.setEnabled(True)
+
+    def redo(self):
+        """Redo the last undone command"""
+        if self.redo_stack:
+            command = self.redo_stack.pop()
+            command.do()
+            self.undo_stack.append(command)
+            self.update_preview()
+            self.auto_save()
+            # Update action states
+            self.undo_action.setEnabled(True)
+            self.redo_action.setEnabled(bool(self.redo_stack))
+
+    def add_category(self):
+        item = QTreeWidgetItem()
+        item.setText(0, "New Category")
+        item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")
+        command = TreeCommand("Add Category", self.tree, "add", item)
+        self.execute_command(command)
+        self.tree.setCurrentItem(item)
 
     def add_subcategory(self):
         current = self.tree.currentItem()
         if current:
-            item = QTreeWidgetItem(current)
+            item = QTreeWidgetItem()
             item.setText(0, "New Subcategory")
-            item.setData(0, Qt.ItemDataRole.UserRole + 2, "subcategory")  # Store item type
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, "subcategory")
+            command = TreeCommand("Add Subcategory", self.tree, "add", item, current)
+            self.execute_command(command)
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
-            self.update_preview()
-            self.auto_save()
 
     def add_item(self):
         current = self.tree.currentItem()
         if current:
-            item = QTreeWidgetItem(current)
+            item = QTreeWidgetItem()
             item.setText(0, "New Item")
-            item.setData(0, Qt.ItemDataRole.UserRole, "")  # Store description
-            item.setData(0, Qt.ItemDataRole.UserRole + 2, "item")  # Store item type
+            item.setData(0, Qt.ItemDataRole.UserRole, "")
+            item.setData(0, Qt.ItemDataRole.UserRole + 2, "item")
+            command = TreeCommand("Add Item", self.tree, "add", item, current)
+            self.execute_command(command)
             current.setExpanded(True)
             self.tree.setCurrentItem(item)
-            self.update_preview()
-            self.auto_save()
 
     def remove_selected(self):
         current = self.tree.currentItem()
         if current:
             parent = current.parent()
-            if parent:
-                parent.removeChild(current)
-            else:
-                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(current))
-            self.update_preview()
-            self.auto_save()
+            command = TreeCommand("Remove Item", self.tree, "remove", current, parent)
+            self.execute_command(command)
 
     def update_button_states(self, current):
         """Update button states based on selected item type"""
@@ -632,16 +750,19 @@ class WikiListBuilder(QMainWindow):
     def update_description(self, item):
         """Update description and auto-save"""
         if item and item.childCount() == 0:
-            item.setData(0, Qt.ItemDataRole.UserRole, self.desc_input.toPlainText())
-            self.update_preview()
-            self.auto_save()
+            old_data = {"text": item.text(0), "description": item.data(0, Qt.ItemDataRole.UserRole)}
+            new_data = {"text": item.text(0), "description": self.desc_input.toPlainText()}
+            command = TreeCommand("Modify Description", self.tree, "modify", item, old_data=old_data, new_data=new_data)
+            self.execute_command(command)
 
     def update_selected_item(self):
         """Update title and auto-save"""
         current = self.tree.currentItem()
         if current:
-            current.setText(0, self.title_input.text())
-            self.update_preview()
+            old_data = {"text": current.text(0), "description": current.data(0, Qt.ItemDataRole.UserRole)}
+            new_data = {"text": self.title_input.text(), "description": current.data(0, Qt.ItemDataRole.UserRole)}
+            command = TreeCommand("Modify Item", self.tree, "modify", current, old_data=old_data, new_data=new_data)
+            self.execute_command(command)
 
     def show_options(self):
         current = self.tree.currentItem()
@@ -982,44 +1103,32 @@ class WikiListBuilder(QMainWindow):
         QApplication.clipboard().setText(self.preview.toPlainText())
 
     def move_item_up(self):
-        current = self.tree.currentItem()
-        if not current:
-            return
-
-        parent = current.parent() or self.tree.invisibleRootItem()
-        current_index = parent.indexOfChild(current)
-
-        # Only allow movement if there's room to move up
-        if current_index > 0:
-            parent.takeChild(current_index)
-            parent.insertChild(current_index - 1, current)
-            self.tree.setCurrentItem(current)
-            self.update_preview()
-            self.table_widget.clearSpans()
-            self.update_table(self.tree_to_dict())
-            self.auto_save()
-
-        self.update_move_buttons()
+        self._move_item("up")
 
     def move_item_down(self):
+        self._move_item("down")
+
+    def _move_item(self, direction):
         current = self.tree.currentItem()
         if not current:
             return
 
         parent = current.parent() or self.tree.invisibleRootItem()
         current_index = parent.indexOfChild(current)
+        new_index = current_index - 1 if direction == "up" else current_index + 1
 
-        # Only allow movement if there's room to move down
-        if current_index < parent.childCount() - 1:
-            parent.takeChild(current_index)
-            parent.insertChild(current_index + 1, current)
+        if 0 <= new_index < parent.childCount():
+            command = TreeCommand(
+                "Move Item",
+                self.tree,
+                "move",
+                current,
+                old_data={"index": current_index},
+                new_data={"index": new_index},
+            )
+            self.execute_command(command)
             self.tree.setCurrentItem(current)
-            self.update_preview()
-            self.table_widget.clearSpans()
-            self.update_table(self.tree_to_dict())
-            self.auto_save()
-
-        self.update_move_buttons()
+            self.update_move_buttons()
 
     def update_move_buttons(self):
         current = self.tree.currentItem()
@@ -1041,6 +1150,13 @@ class WikiListBuilder(QMainWindow):
         self.list_title_input.setProperty("titleData", None)
         self.collapsible_checkbox.setChecked(False)
         self.current_save_name = None  # Reset current save name
+
+        # Clear undo/redo stacks
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        # Update action states
+        self.undo_action.setEnabled(False)
+        self.redo_action.setEnabled(False)
 
         if add_category:
             # Add empty category
