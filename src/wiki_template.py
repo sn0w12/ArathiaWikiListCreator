@@ -460,7 +460,7 @@ class ManualWikiTemplate:
                         class_name = ' class="dotted-row"'
                         remaining_cols -= cols
                     titles.append(
-                        f"""! colspan="{cols}"{class_name} style="text-align:center; font-weight: bold; position: relative;" | {title_data["title"]}"""
+                        f"""! colspan="{cols}"{class_name} style="font-weight: bold; position: relative;" | {title_data["title"]}"""
                     )
                 else:
                     # Handle string title (should only be used if it's the only title)
