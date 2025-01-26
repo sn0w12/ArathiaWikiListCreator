@@ -270,7 +270,6 @@ class WikiListBuilder(QMainWindow):
         # Initialize UI first
         self.setWindowTitle("Wiki List Builder")
         self.setGeometry(100, 100, 1200, 800)
-
         self.setWindowIcon(QIcon("img/arathia.ico"))
 
         # Create main widget and layout
@@ -372,44 +371,66 @@ class WikiListBuilder(QMainWindow):
         self.title_input.textChanged.connect(self.update_selected_item)
 
         self.desc_label = QLabel("Description:")
+        self.desc_label.setVisible(False)
         self.desc_input = QTextEdit()
+        self.desc_input.setVisible(False)
 
-        # Add table widget
+        # Create vertical splitter for table and preview
+        table_preview_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Table section
+        table_widget = QWidget()
+        table_layout = QVBoxLayout(table_widget)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+
         table_label = QLabel("Data Table:")
         self.table_widget = QTableWidget()
-        self.table_widget.setMinimumHeight(200)
+        self.table_widget.setMinimumHeight(100)  # Reduced minimum height
 
         # Set stretch mode for the header
         header = self.table_widget.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)  # Make last column stretch
+        header.setStretchLastSection(True)
 
-        # Default column proportions (percentages)
-        self.base_column_proportions = [20, 20, 30]  # [Category, Item, Description]
+        table_layout.addWidget(table_label)
+        table_layout.addWidget(self.table_widget)
+        table_widget.setLayout(table_layout)
 
-        # Preview
+        # Preview section
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+
         preview_label = QLabel("Preview:")
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
+        self.preview.setMinimumHeight(100)  # Reduced minimum height
 
-        # Add copy button
         self.copy_btn = QPushButton("Copy to Clipboard")
         self.copy_btn.clicked.connect(self.copy_preview)
 
+        preview_layout.addWidget(preview_label)
+        preview_layout.addWidget(self.preview)
+        preview_layout.addWidget(self.copy_btn)
+        preview_widget.setLayout(preview_layout)
+
+        # Add widgets to splitter
+        table_preview_splitter.addWidget(table_widget)
+        table_preview_splitter.addWidget(preview_widget)
+
+        # Add everything to right panel
         for widget in (
             self.title_label,
             self.title_input,
             self.desc_label,
             self.desc_input,
-            table_label,
-            self.table_widget,
-            preview_label,
-            self.preview,
-            self.copy_btn,
+            table_preview_splitter,
         ):
             right_layout.addWidget(widget)
 
         splitter.addWidget(right_panel)
+        window_width = self.width()
+        splitter.setSizes([int(window_width * 0.3), int(window_width * 0.7)])
 
         # After all UI elements are created, show save selection dialog
         dialog = SaveSelectionDialog()
@@ -420,6 +441,8 @@ class WikiListBuilder(QMainWindow):
             else:
                 # Only add new category if we're creating a new list
                 self.clear_list(add_category=True)
+
+        self.showMaximized()
 
     def get_safe_filename(self):
         """Convert title to safe filename"""
@@ -686,10 +709,23 @@ class WikiListBuilder(QMainWindow):
         if self.table_widget.columnCount() == 0:
             return
 
-        total_width = self.table_widget.viewport().width()
-        for i in range(self.table_widget.columnCount()):
-            width = int(total_width * self.column_proportions[i] / 100)
+        total_width = self.table_widget.viewport().width() - 2  # Account for borders
+        remaining_width = total_width
+
+        # Set all columns except the last one according to proportions
+        for i in range(self.table_widget.columnCount() - 1):
+            # Skip if we don't have a proportion defined for this column
+            if i >= len(self.column_proportions):
+                break
+
+            width = int(total_width * (self.column_proportions[i] / 100.0))
             self.table_widget.setColumnWidth(i, width)
+            remaining_width -= width
+
+        # Give remaining width to the last column
+        last_col = self.table_widget.columnCount() - 1
+        if last_col >= 0:
+            self.table_widget.setColumnWidth(last_col, remaining_width)
 
     def update_table(self, data):
         """Update the table widget with the organized data"""

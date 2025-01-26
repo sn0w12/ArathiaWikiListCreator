@@ -486,11 +486,11 @@ class ManualWikiTemplate:
         def process_category(items, current_depth=0):
             for idx, (title, content) in enumerate(items.items()):
                 if isinstance(content, dict):
-                    # Skip any metadata fields
                     if title == "__metadata":
                         continue
 
                     if "description" in content:
+                        # For items with descriptions
                         max_depth = self.get_max_category_depth()
                         colspan = max_depth - current_depth
                         output.append(
@@ -498,16 +498,18 @@ class ManualWikiTemplate:
                         )
                         output.append(self.generate_row_separator())
                     else:
+                        # For categories
                         data = self.process_data_without_options(content)
                         extra_depth = self.get_extra_depth(content)
 
+                        # Calculate colspan based on nesting level and extra depth
+                        remaining_depth = self.get_max_category_depth() - current_depth
+                        base_colspan = min(remaining_depth, extra_depth + 1)
+
                         output.append(
-                            self.generate_parent_category(
-                                title,
-                                self.get_current_max_subcategories(data),
-                                current_depth + 1 + extra_depth if extra_depth > 0 else 1,
-                            )
+                            self.generate_parent_category(title, self.get_current_max_subcategories(data), base_colspan)
                         )
+                        # Pass extra_depth to next level
                         process_category(data, current_depth + 1 + extra_depth)
 
         process_category(self.categories)
