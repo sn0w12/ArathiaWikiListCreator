@@ -30,6 +30,7 @@ from datetime import datetime
 from colorama import init, Fore, Style
 import qdarktheme
 import json
+import ctypes
 
 init()
 
@@ -1052,6 +1053,8 @@ class WikiListBuilder(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication([])
+    myappid = "mycompany.myproduct.subproduct.version"  # arbitrary string
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
     qdarktheme.setup_theme()
     window = WikiListBuilder()
     window.show()
