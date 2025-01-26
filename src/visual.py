@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QShortcut, QKeySequence  # Add QShortcut and QKeySequence
 from list_builder import ManualListBuilder
 from datetime import datetime
@@ -508,11 +508,22 @@ class WikiListBuilder(QMainWindow):
             self.target_save_name = None
             self.loading_list = False
 
+            # Force complete UI update and resize
+            QApplication.processEvents()
+            QTimer.singleShot(100, lambda: self._finish_table_resize())
+
         except Exception as e:
             self.loading_list = False
             self.current_save_name = None
             self.target_save_name = None
             print(f"Error loading save: {e}")
+
+    def _finish_table_resize(self):
+        """Helper method to finish table resizing"""
+        self.table_widget.clearSpans()  # Clear existing spans
+        self.update_table(self.tree_to_dict())  # Rebuild table completely
+        self.table_widget.resizeRowsToContents()
+        self.adjust_table_columns()
 
     def add_category(self):
         item = QTreeWidgetItem(self.tree)
