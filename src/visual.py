@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
+    QMenu,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QShortcut, QKeySequence  # Add QShortcut and QKeySequence
@@ -325,6 +326,8 @@ class WikiListBuilder(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Items"])
         self.tree.itemSelectionChanged.connect(self.on_selection_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_context_menu)
         left_layout.addWidget(self.tree)
 
         # Buttons
@@ -986,15 +989,14 @@ class WikiListBuilder(QMainWindow):
         parent = current.parent() or self.tree.invisibleRootItem()
         current_index = parent.indexOfChild(current)
 
+        # Only allow movement if there's room to move up
         if current_index > 0:
-            # Remove and reinsert the item one position up
             parent.takeChild(current_index)
             parent.insertChild(current_index - 1, current)
             self.tree.setCurrentItem(current)
-            # Force complete table refresh
             self.update_preview()
-            self.table_widget.clearSpans()  # Clear existing spans
-            self.update_table(self.tree_to_dict())  # Rebuild table
+            self.table_widget.clearSpans()
+            self.update_table(self.tree_to_dict())
             self.auto_save()
 
         self.update_move_buttons()
@@ -1007,15 +1009,14 @@ class WikiListBuilder(QMainWindow):
         parent = current.parent() or self.tree.invisibleRootItem()
         current_index = parent.indexOfChild(current)
 
+        # Only allow movement if there's room to move down
         if current_index < parent.childCount() - 1:
-            # Remove and reinsert the item one position down
             parent.takeChild(current_index)
             parent.insertChild(current_index + 1, current)
             self.tree.setCurrentItem(current)
-            # Force complete table refresh
             self.update_preview()
-            self.table_widget.clearSpans()  # Clear existing spans
-            self.update_table(self.tree_to_dict())  # Rebuild table
+            self.table_widget.clearSpans()
+            self.update_table(self.tree_to_dict())
             self.auto_save()
 
         self.update_move_buttons()
@@ -1060,6 +1061,147 @@ class WikiListBuilder(QMainWindow):
             else:
                 # Clear and add new category when creating a new list
                 self.clear_list(add_category=True)
+
+    def show_context_menu(self, position):
+        item = self.tree.itemAt(position)
+        if not item:
+            background_menu = QMenu()
+
+            # Add new category action
+            add_category_action = background_menu.addAction("Add Category")
+            add_category_action.triggered.connect(self.add_category)
+
+            # Add expand/collapse all actions
+            background_menu.addSeparator()
+            expand_all_action = background_menu.addAction("Expand All")
+            expand_all_action.triggered.connect(lambda: self.expand_collapse_all(True))
+            collapse_all_action = background_menu.addAction("Collapse All")
+            collapse_all_action.triggered.connect(lambda: self.expand_collapse_all(False))
+
+            # Add collapse empty categories option
+            background_menu.addSeparator()
+            collapse_empty_action = background_menu.addAction("Collapse Empty Categories")
+            collapse_empty_action.triggered.connect(self.collapse_empty_categories)
+
+            background_menu.exec(self.tree.viewport().mapToGlobal(position))
+            return
+
+        menu = QMenu()
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 2)
+
+        # Add type-specific actions
+        if item_type in ("category", "subcategory"):
+            # Expand/collapse actions
+            expand_action = menu.addAction("Expand")
+            expand_action.triggered.connect(lambda: item.setExpanded(True))
+            collapse_action = menu.addAction("Collapse")
+            collapse_action.triggered.connect(lambda: item.setExpanded(False))
+
+            menu.addSeparator()
+            expand_all_action = menu.addAction("Expand All")
+            expand_all_action.triggered.connect(lambda: self.expand_collapse_recursive(item, True))
+            collapse_all_action = menu.addAction("Collapse All")
+            collapse_all_action.triggered.connect(lambda: self.expand_collapse_recursive(item, False))
+
+            menu.addSeparator()
+            # Add actions
+            add_menu = menu.addMenu("Add")
+            if item_type == "category":
+                add_category_action = add_menu.addAction("Category")
+                add_category_action.triggered.connect(self.add_category)
+            add_subcategory_action = add_menu.addAction("Subcategory")
+            add_subcategory_action.triggered.connect(self.add_subcategory)
+            add_item_action = add_menu.addAction("Item")
+            add_item_action.triggered.connect(self.add_item)
+
+        # Movement actions for all types based on current position
+        menu.addSeparator()
+        move_menu = menu.addMenu("Move")
+
+        # Get movement possibilities
+        parent = item.parent() or self.tree.invisibleRootItem()
+        current_index = parent.indexOfChild(item)
+        can_move_up = current_index > 0
+        can_move_down = current_index < parent.childCount() - 1
+
+        # Only show enabled move actions if they're possible
+        move_up_action = move_menu.addAction("Move Up")
+        move_up_action.triggered.connect(self.move_item_up)
+        move_up_action.setEnabled(can_move_up)
+
+        move_down_action = move_menu.addAction("Move Down")
+        move_down_action.triggered.connect(self.move_item_down)
+        move_down_action.setEnabled(can_move_down)
+
+        # Delete action for all types
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(self.remove_selected)
+
+        menu.exec(self.tree.viewport().mapToGlobal(position))
+
+    def expand_collapse_all(self, expand=True):
+        """Expand or collapse all items in the tree"""
+        root = self.tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            self.expand_collapse_recursive(root.child(i), expand)
+
+    def sort_tree(self, ascending=True):
+        """Sort the tree items alphabetically"""
+        root = self.tree.invisibleRootItem()
+        self._sort_items(root, ascending)
+        self.update_preview()
+        self.auto_save()
+
+    def _sort_items(self, parent, ascending=True):
+        """Recursively sort items within a parent item"""
+        # Get all children
+        items = []
+        for i in range(parent.childCount()):
+            items.append(parent.child(i))
+
+        # Sort items by text
+        items.sort(key=lambda x: x.text(0).lower(), reverse=not ascending)
+
+        # Remove and re-add items in sorted order
+        for item in items:
+            parent.removeChild(item)
+            parent.addChild(item)
+            # Recursively sort children
+            self._sort_items(item, ascending)
+
+    def collapse_empty_categories(self):
+        """Collapse categories and subcategories that have no items"""
+        root = self.tree.invisibleRootItem()
+        self._collapse_if_empty(root)
+
+    def _collapse_if_empty(self, parent):
+        """Recursively check and collapse empty categories"""
+        has_items = False
+
+        # Check all children
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            child_type = child.data(0, Qt.ItemDataRole.UserRole + 2)
+
+            if child_type == "item":
+                has_items = True
+            else:
+                # Recursively check child categories/subcategories
+                if self._collapse_if_empty(child):
+                    has_items = True
+
+        # Collapse if no items found
+        if not has_items and parent != self.tree.invisibleRootItem():
+            parent.setExpanded(False)
+
+        return has_items
+
+    def expand_collapse_recursive(self, item, expand=True):
+        """Recursively expand or collapse an item and all its children"""
+        item.setExpanded(expand)
+        for i in range(item.childCount()):
+            self.expand_collapse_recursive(item.child(i), expand)
 
 
 if __name__ == "__main__":
