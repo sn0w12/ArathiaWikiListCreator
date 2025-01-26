@@ -971,7 +971,10 @@ class WikiListBuilder(QMainWindow):
             parent.takeChild(current_index)
             parent.insertChild(current_index - 1, current)
             self.tree.setCurrentItem(current)
+            # Force complete table refresh
             self.update_preview()
+            self.table_widget.clearSpans()  # Clear existing spans
+            self.update_table(self.tree_to_dict())  # Rebuild table
             self.auto_save()
 
         self.update_move_buttons()
@@ -989,7 +992,10 @@ class WikiListBuilder(QMainWindow):
             parent.takeChild(current_index)
             parent.insertChild(current_index + 1, current)
             self.tree.setCurrentItem(current)
+            # Force complete table refresh
             self.update_preview()
+            self.table_widget.clearSpans()  # Clear existing spans
+            self.update_table(self.tree_to_dict())  # Rebuild table
             self.auto_save()
 
         self.update_move_buttons()
