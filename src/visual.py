@@ -375,6 +375,10 @@ class WikiListBuilder(QMainWindow):
         self.desc_input = QTextEdit()
         self.desc_input.setVisible(False)
 
+        screen = QApplication.primaryScreen().geometry()
+        desc_height = int(screen.height() * 0.2)
+        self.desc_input.setMaximumHeight(desc_height)
+
         # Create vertical splitter for table and preview
         table_preview_splitter = QSplitter(Qt.Orientation.Vertical)
 
