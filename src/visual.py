@@ -320,7 +320,7 @@ class TreeCommand(Command):
 
 
 class WikiListBuilder(QMainWindow):
-    def __init__(self):
+    def __init__(self, skip_initial_load=False):
         super().__init__()
         self.undo_stack = []
         self.redo_stack = []
@@ -512,14 +512,9 @@ class WikiListBuilder(QMainWindow):
         splitter.setSizes([int(window_width * 0.3), int(window_width * 0.7)])
 
         # After all UI elements are created, show save selection dialog
-        dialog = SaveSelectionDialog()
-        if dialog.exec():
-            selected = dialog.get_selected()
-            if selected:
-                self.load_from_save(selected)
-            else:
-                # Only add new category if we're creating a new list
-                self.clear_list(add_category=True)
+        if not skip_initial_load:
+            # Use QTimer to show dialog after window is shown
+            QTimer.singleShot(0, self.show_initial_save_dialog)
 
         self.showMaximized()
 
@@ -538,6 +533,17 @@ class WikiListBuilder(QMainWindow):
         self.redo_action.triggered.connect(self.redo)
         self.redo_action.setEnabled(False)  # Initially disabled
         edit_menu.addAction(self.redo_action)
+
+    def show_initial_save_dialog(self):
+        """Show save selection dialog for initial load"""
+        dialog = SaveSelectionDialog()
+        if dialog.exec():
+            selected = dialog.get_selected()
+            if selected:
+                self.load_from_save(selected)
+            else:
+                # Only add new category if we're creating a new list
+                self.clear_list(add_category=True)
 
     def get_safe_filename(self):
         """Convert title to safe filename"""
@@ -1325,6 +1331,8 @@ if __name__ == "__main__":
     myappid = "mycompany.myproduct.subproduct.version"  # arbitrary string
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
     qdarktheme.setup_theme()
-    window = WikiListBuilder()
+    window = WikiListBuilder(skip_initial_load=True)
     window.show()
+    # Show initial save dialog after window is shown
+    QTimer.singleShot(100, window.show_initial_save_dialog)
     app.exec()
