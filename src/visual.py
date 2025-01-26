@@ -25,13 +25,14 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QAction  # Add QAction import
+from PyQt6.QtGui import QIcon, QAction
 from list_builder import ManualListBuilder
 from datetime import datetime
 from colorama import init, Fore, Style
 import qdarktheme
 import json
 import ctypes
+import uuid  # Add this import at the top with other imports
 
 init()
 
@@ -205,6 +206,7 @@ class SaveSelectionDialog(QDialog):
         layout.addLayout(button_layout)
 
         # Load existing saves
+        self.save_data = {}  # Store mapping of display names to file IDs
         self.load_saves()
 
         # Enable buttons only when item selected
@@ -220,28 +222,53 @@ class SaveSelectionDialog(QDialog):
     def remove_selected(self):
         current = self.saves_list.currentItem()
         if current:
+            display_name = current.text()
+            save_id = self.save_data.get(display_name)
+
             reply = QMessageBox.question(
                 self,
                 "Confirm Removal",
-                f'Are you sure you want to remove "{current.text()}"?',
+                f'Are you sure you want to remove "{display_name}"?',
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
 
             if reply == QMessageBox.StandardButton.Yes:
-                file_path = os.path.join("saves", f"{current.text()}.json.gz")
+                file_path = os.path.join("saves", f"{save_id}.json.gz")
                 try:
                     os.remove(file_path)
                     self.saves_list.takeItem(self.saves_list.row(current))
+                    self.save_data.pop(display_name, None)
                 except Exception as e:
                     QMessageBox.warning(self, "Error", f"Could not remove file: {e}")
 
     def load_saves(self):
+        """Load saves and display their titles"""
+        self.saves_list.clear()
+        self.save_data.clear()
         saves_dir = "saves"
+
         if os.path.exists(saves_dir):
             for file in os.listdir(saves_dir):
                 if file.endswith(".json.gz"):
-                    self.saves_list.addItem(file[:-8])  # Remove .json.gz
+                    try:
+                        with gzip.open(os.path.join(saves_dir, file), "rt", encoding="utf-8") as f:
+                            data = json.load(f)
+                            title = data.get("__title", "Untitled")
+                            if isinstance(title, (list, dict)):
+                                # Handle complex title structures
+                                if isinstance(title, list):
+                                    display_title = title[0]["title"] if isinstance(title[0], dict) else title[0]
+                                else:
+                                    display_title = title["title"]
+                            else:
+                                display_title = str(title)
+
+                            save_id = file[:-8]  # Remove .json.gz
+                            self.save_data[display_title] = save_id
+                            self.saves_list.addItem(display_title)
+                    except Exception as e:
+                        log(f"Error loading save {file}: {e}", "ERROR")
 
     def create_new(self):
         """Clear selection and create new list"""
@@ -250,8 +277,10 @@ class SaveSelectionDialog(QDialog):
         self.accept()
 
     def get_selected(self):
+        """Return the save ID for the selected item"""
         if self.saves_list.selectedItems():
-            return self.saves_list.currentItem().text()
+            display_name = self.saves_list.currentItem().text()
+            return self.save_data.get(display_name)
         return None
 
 
@@ -322,16 +351,13 @@ class TreeCommand(Command):
 class WikiListBuilder(QMainWindow):
     def __init__(self, skip_initial_load=False):
         super().__init__()
+        self.auto_save_enabled = True
         self.undo_stack = []
         self.redo_stack = []
-
         self.current_save_name = None  # Track current save name
         self.loading_list = False  # Add flag to track when we're loading a list
         self.target_save_name = None  # Add new variable to track target save name
-
-        # Add save shortcut right after initializing the class variables
-        self.save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
-        self.save_shortcut.activated.connect(self.auto_save)
+        self.save_id = None  # Add save_id to track the unique identifier
 
         # Create saves directory if it doesn't exist
         os.makedirs("saves", exist_ok=True)
@@ -340,6 +366,9 @@ class WikiListBuilder(QMainWindow):
         self.setWindowTitle("Wiki List Builder")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowIcon(QIcon("img/arathia.ico"))
+
+        # Setup menu bar
+        self.setup_menu_bar()
 
         # Create main widget and layout
         main_widget = QWidget()
@@ -353,22 +382,6 @@ class WikiListBuilder(QMainWindow):
         # Left panel - Tree and controls
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-
-        # Modify file buttons at the top
-        file_buttons_layout = QHBoxLayout()
-        self.open_list_btn = QPushButton("Open List")  # New button
-        self.save_btn = QPushButton("Save")  # New auto-save button
-        self.export_btn = QPushButton("Export")  # Renamed from "Save List"
-        self.import_btn = QPushButton("Import List")
-
-        self.open_list_btn.clicked.connect(self.show_list_selection)
-        self.save_btn.clicked.connect(self.auto_save)
-        self.export_btn.clicked.connect(self.export_list)  # Renamed from save_list
-        self.import_btn.clicked.connect(self.import_list)
-
-        for btn in (self.open_list_btn, self.save_btn, self.export_btn, self.import_btn):
-            file_buttons_layout.addWidget(btn)
-        left_layout.addLayout(file_buttons_layout)
 
         # Add title input
         title_layout = QHBoxLayout()
@@ -518,21 +531,78 @@ class WikiListBuilder(QMainWindow):
 
         self.showMaximized()
 
-        # Add undo/redo actions to menu bar
+    def setup_menu_bar(self):
+        """Set up the application menu bar"""
         menubar = self.menuBar()
+
+        # File Menu
+        file_menu = menubar.addMenu("File")
+
+        new_action = QAction("New List", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(lambda: self.clear_list(add_category=True))
+
+        open_action = QAction("Open List...", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self.show_list_selection)
+
+        save_action = QAction("Save", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.auto_save)
+
+        export_action = QAction("Export...", self)
+        export_action.setShortcut("Ctrl+E")
+        export_action.triggered.connect(self.export_list)
+
+        import_action = QAction("Import...", self)
+        import_action.setShortcut("Ctrl+I")
+        import_action.triggered.connect(self.import_list)
+
+        exit_action = QAction("Exit", self)
+        exit_action.setShortcut("Alt+F4")
+        exit_action.triggered.connect(self.close)
+
+        file_menu.addAction(new_action)
+        file_menu.addAction(open_action)
+        file_menu.addSeparator()
+        file_menu.addAction(save_action)
+        file_menu.addAction(export_action)
+        file_menu.addAction(import_action)
+        file_menu.addSeparator()
+        file_menu.addAction(exit_action)
+
+        # Edit Menu
         edit_menu = menubar.addMenu("Edit")
 
         self.undo_action = QAction("Undo", self)
         self.undo_action.setShortcut("Ctrl+Z")
         self.undo_action.triggered.connect(self.undo)
-        self.undo_action.setEnabled(False)  # Initially disabled
-        edit_menu.addAction(self.undo_action)
+        self.undo_action.setEnabled(False)
 
         self.redo_action = QAction("Redo", self)
         self.redo_action.setShortcut("Ctrl+Y")
         self.redo_action.triggered.connect(self.redo)
-        self.redo_action.setEnabled(False)  # Initially disabled
+        self.redo_action.setEnabled(False)
+
+        edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
+
+        # View Menu
+        view_menu = menubar.addMenu("View")
+
+        expand_all_action = QAction("Expand All", self)
+        expand_all_action.triggered.connect(lambda: self.expand_collapse_all(True))
+
+        collapse_all_action = QAction("Collapse All", self)
+        collapse_all_action.triggered.connect(lambda: self.expand_collapse_all(False))
+
+        collapse_empty_action = QAction("Collapse Empty Categories", self)
+        collapse_empty_action.triggered.connect(self.collapse_empty_categories)
+
+        view_menu.addAction(expand_all_action)
+        view_menu.addAction(collapse_all_action)
+        view_menu.addAction(collapse_empty_action)
+        view_menu.addSeparator()
 
     def show_initial_save_dialog(self):
         """Show save selection dialog for initial load"""
@@ -552,42 +622,31 @@ class WikiListBuilder(QMainWindow):
 
     def auto_save(self):
         """Automatically save the current state"""
-        if self.loading_list:  # Skip if we're loading a list
-            log("Skipping auto-save while loading list", "DEBUG")
+        if not self.auto_save_enabled or self.loading_list:
+            log("Skipping auto-save", "DEBUG")
             return
+
+        if not self.save_id:
+            self.save_id = str(uuid.uuid4())
 
         data = self.tree_to_dict()
         if data:
-            # Use current_save_name if available, otherwise generate from title
-            filename = self.current_save_name or self.get_safe_filename()
-            if filename:
-                save_path = os.path.join("saves", f"{filename}.json.gz")
-                with gzip.open(save_path, "wt", encoding="utf-8") as f:
-                    json.dump(data, f)
-                log(f"Saved list to {save_path}", "INFO")
+            save_path = os.path.join("saves", f"{self.save_id}.json.gz")
+            with gzip.open(save_path, "wt", encoding="utf-8") as f:
+                json.dump(data, f)
+            log(f"Saved list to {save_path}", "INFO")
 
     def on_title_changed(self):
-        """Handle title changes and remove old save"""
-        if self.loading_list:  # Skip if we're loading a list
-            return
+        """Handle title changes"""
+        if not self.loading_list:
+            self.auto_save()
 
-        if self.current_save_name:
-            old_save_path = os.path.join("saves", f"{self.current_save_name}.json.gz")
-            try:
-                if os.path.exists(old_save_path):
-                    os.remove(old_save_path)
-            except Exception as e:
-                print(f"Error removing old save: {e}")
-
-        self.current_save_name = self.get_safe_filename()
-        self.auto_save()
-
-    def load_from_save(self, name):
+    def load_from_save(self, save_id):
         """Load data from a saved file"""
         try:
-            save_path = os.path.join("saves", f"{name}.json.gz")
-            self.loading_list = True  # Set flag before loading
-            self.target_save_name = name  # Store target name temporarily
+            save_path = os.path.join("saves", f"{save_id}.json.gz")
+            self.loading_list = True
+            self.save_id = save_id  # Store the save ID
 
             # Clear undo/redo stacks before loading new data
             self.undo_stack.clear()
@@ -599,9 +658,6 @@ class WikiListBuilder(QMainWindow):
                 self.load_tree_data(data)
                 self.update_preview()
 
-            # Now that loading is complete, update the current save name
-            self.current_save_name = self.target_save_name
-            self.target_save_name = None
             self.loading_list = False
 
             # Force complete UI update and resize
@@ -610,9 +666,7 @@ class WikiListBuilder(QMainWindow):
 
         except Exception as e:
             self.loading_list = False
-            self.current_save_name = None
-            self.target_save_name = None
-            print(f"Error loading save: {e}")
+            log(f"Error loading save: {e}", "ERROR")
 
     def _finish_table_resize(self):
         """Helper method to finish table resizing"""
@@ -1151,25 +1205,34 @@ class WikiListBuilder(QMainWindow):
 
     def clear_list(self, add_category=False):
         """Clear all current list data and optionally add empty category"""
+        # Temporarily disable auto-save
+        self.auto_save_enabled = False
+
         self.tree.clear()
         self.list_title_input.setText("List of Items")
         self.list_title_input.setProperty("titleData", None)
         self.collapsible_checkbox.setChecked(False)
-        self.current_save_name = None  # Reset current save name
-
-        # Clear undo/redo stacks
-        self.undo_stack.clear()
-        self.redo_stack.clear()
-        # Update action states
-        self.undo_action.setEnabled(False)
-        self.redo_action.setEnabled(False)
 
         if add_category:
+            # Generate new unique ID for the list
+            self.save_id = str(uuid.uuid4())
+
             # Add empty category
             item = QTreeWidgetItem(self.tree)
             item.setText(0, "New Category")
             item.setData(0, Qt.ItemDataRole.UserRole + 2, "category")
             self.tree.setCurrentItem(item)
+
+            self.list_title_input.setText("New List")
+
+        # Clear undo/redo stacks
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.undo_action.setEnabled(False)
+        self.redo_action.setEnabled(False)
+
+        # Re-enable auto-save after clearing
+        self.auto_save_enabled = True
 
         self.update_preview()
 
@@ -1181,8 +1244,10 @@ class WikiListBuilder(QMainWindow):
             if selected:
                 self.load_from_save(selected)
             else:
-                # Clear and add new category when creating a new list
+                # Disable auto-save before creating new list
+                self.auto_save_enabled = False
                 self.clear_list(add_category=True)
+                self.auto_save_enabled = True
 
     def show_context_menu(self, position):
         item = self.tree.itemAt(position)
@@ -1333,6 +1398,5 @@ if __name__ == "__main__":
     qdarktheme.setup_theme()
     window = WikiListBuilder(skip_initial_load=True)
     window.show()
-    # Show initial save dialog after window is shown
     QTimer.singleShot(100, window.show_initial_save_dialog)
     app.exec()
