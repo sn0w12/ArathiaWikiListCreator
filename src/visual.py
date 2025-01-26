@@ -189,77 +189,95 @@ class SaveSelectionDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # List of saves
-        self.saves_list = QListWidget()
-        layout.addWidget(self.saves_list)
+        # Add search bar
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search lists...")
+        self.search_input.textChanged.connect(self.filter_lists)
+        layout.addWidget(self.search_input)
+
+        # List of saves - change to QTableWidget for better sorting
+        self.saves_table = QTableWidget()
+        self.saves_table.setColumnCount(2)
+        self.saves_table.setHorizontalHeaderLabels(["Title", "Last Modified"])
+        self.saves_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.saves_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.saves_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.saves_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.saves_table.setSortingEnabled(True)
+        self.saves_table.horizontalHeader().sectionClicked.connect(self.handle_sort)
+        self.saves_table.verticalHeader().setVisible(False)  # Hide row numbers
+        layout.addWidget(self.saves_table)
 
         # Buttons
         button_layout = QHBoxLayout()
         self.new_btn = QPushButton("New List")
         self.open_btn = QPushButton("Open Selected")
-        self.remove_btn = QPushButton("Remove Selected")  # New remove button
+        self.remove_btn = QPushButton("Remove Selected")
 
         self.new_btn.clicked.connect(self.create_new)
         self.open_btn.clicked.connect(self.accept)
-        self.remove_btn.clicked.connect(self.remove_selected)  # New remove handler
+        self.remove_btn.clicked.connect(self.remove_selected)
 
         button_layout.addWidget(self.new_btn)
         button_layout.addWidget(self.open_btn)
         button_layout.addWidget(self.remove_btn)
         layout.addLayout(button_layout)
 
-        # Load existing saves
-        self.save_data = {}  # Store mapping of display names to file IDs
+        # Store mapping of display names to file IDs and timestamps
+        self.save_data = {}
+        self.current_sort_column = 0
+        self.sort_order = Qt.SortOrder.AscendingOrder
         self.load_saves()
 
         # Enable buttons only when item selected
         self.open_btn.setEnabled(False)
         self.remove_btn.setEnabled(False)
-        self.saves_list.itemSelectionChanged.connect(self.update_button_states)
+        self.saves_table.itemSelectionChanged.connect(self.update_button_states)
 
     def update_button_states(self):
-        has_selection = bool(self.saves_list.selectedItems())
+        has_selection = bool(self.saves_table.selectedItems())
         self.open_btn.setEnabled(has_selection)
         self.remove_btn.setEnabled(has_selection)
 
-    def remove_selected(self):
-        current = self.saves_list.currentItem()
-        if current:
-            display_name = current.text()
-            save_id = self.save_data.get(display_name)
-
-            reply = QMessageBox.question(
-                self,
-                "Confirm Removal",
-                f'Are you sure you want to remove "{display_name}"?',
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+    def handle_sort(self, column):
+        if self.current_sort_column == column:
+            self.sort_order = (
+                Qt.SortOrder.DescendingOrder
+                if self.sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
             )
+        else:
+            self.current_sort_column = column
+            self.sort_order = Qt.SortOrder.AscendingOrder
 
-            if reply == QMessageBox.StandardButton.Yes:
-                file_path = os.path.join("saves", f"{save_id}.json.gz")
-                try:
-                    os.remove(file_path)
-                    self.saves_list.takeItem(self.saves_list.row(current))
-                    self.save_data.pop(display_name, None)
-                except Exception as e:
-                    QMessageBox.warning(self, "Error", f"Could not remove file: {e}")
+        self.saves_table.sortItems(column, self.sort_order)
+
+    def filter_lists(self):
+        search_text = self.search_input.text().lower()
+        for row in range(self.saves_table.rowCount()):
+            title_item = self.saves_table.item(row, 0)
+            matches = search_text in title_item.text().lower()
+            self.saves_table.setRowHidden(row, not matches)
 
     def load_saves(self):
         """Load saves and display their titles"""
-        self.saves_list.clear()
+        self.saves_table.clearContents()
+        self.saves_table.setRowCount(0)
         self.save_data.clear()
         saves_dir = "saves"
 
         if os.path.exists(saves_dir):
+            save_items = []
             for file in os.listdir(saves_dir):
                 if file.endswith(".json.gz"):
                     try:
-                        with gzip.open(os.path.join(saves_dir, file), "rt", encoding="utf-8") as f:
+                        file_path = os.path.join(saves_dir, file)
+                        timestamp = datetime.fromtimestamp(os.path.getmtime(file_path))
+
+                        with gzip.open(file_path, "rt", encoding="utf-8") as f:
                             data = json.load(f)
                             title = data.get("__title", "Untitled")
                             if isinstance(title, (list, dict)):
-                                # Handle complex title structures
                                 if isinstance(title, list):
                                     display_title = title[0]["title"] if isinstance(title[0], dict) else title[0]
                                 else:
@@ -268,22 +286,58 @@ class SaveSelectionDialog(QDialog):
                                 display_title = str(title)
 
                             save_id = file[:-8]  # Remove .json.gz
-                            self.save_data[display_title] = save_id
-                            self.saves_list.addItem(display_title)
+                            self.save_data[display_title] = {"id": save_id, "timestamp": timestamp}
+                            save_items.append((display_title, timestamp))
                     except Exception as e:
                         log(f"Error loading save {file}: {e}", "ERROR")
 
+            # Add items to table
+            self.saves_table.setRowCount(len(save_items))
+            for row, (title, timestamp) in enumerate(save_items):
+                title_item = QTableWidgetItem(title)
+                timestamp_item = QTableWidgetItem(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+
+                self.saves_table.setItem(row, 0, title_item)
+                self.saves_table.setItem(row, 1, timestamp_item)
+
+    def remove_selected(self):
+        current_row = self.saves_table.currentRow()
+        if current_row >= 0:
+            title_item = self.saves_table.item(current_row, 0)
+            display_name = title_item.text()
+            save_data = self.save_data.get(display_name)
+
+            if save_data:
+                reply = QMessageBox.question(
+                    self,
+                    "Confirm Removal",
+                    f'Are you sure you want to remove "{display_name}"?',
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    file_path = os.path.join("saves", f"{save_data['id']}.json.gz")
+                    try:
+                        os.remove(file_path)
+                        self.saves_table.removeRow(current_row)
+                        self.save_data.pop(display_name, None)
+                    except Exception as e:
+                        QMessageBox.warning(self, "Error", f"Could not remove file: {e}")
+
     def create_new(self):
-        """Clear selection and create new list"""
-        self.saves_list.clearSelection()  # Clear any existing selection
+        self.saves_table.clearSelection()
         self.selected_name = None
         self.accept()
 
     def get_selected(self):
         """Return the save ID for the selected item"""
-        if self.saves_list.selectedItems():
-            display_name = self.saves_list.currentItem().text()
-            return self.save_data.get(display_name)
+        current_row = self.saves_table.currentRow()
+        if current_row >= 0:
+            title_item = self.saves_table.item(current_row, 0)
+            display_name = title_item.text()
+            save_data = self.save_data.get(display_name)
+            return save_data["id"] if save_data else None
         return None
 
 
