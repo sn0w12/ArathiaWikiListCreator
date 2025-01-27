@@ -450,6 +450,23 @@ class SettingsDialog(QDialog):
         default_options_group.setLayout(default_options_layout)
         layout.addWidget(default_options_group)
 
+        # Backup Settings Section
+        backup_group = QGroupBox("Backup Settings")
+        backup_layout = QVBoxLayout()
+
+        self.backup_enabled = QCheckBox("Enable backups")
+        self.backup_enabled.setChecked(True)
+
+        self.max_backups_spinner = QSpinBox()
+        self.max_backups_spinner.setRange(1, 100)
+        self.max_backups_spinner.setValue(20)
+
+        backup_layout.addWidget(self.backup_enabled)
+        backup_layout.addWidget(QLabel("Max Backups:"))
+        backup_layout.addWidget(self.max_backups_spinner)
+        backup_group.setLayout(backup_layout)
+        layout.addWidget(backup_group)
+
         # Buttons
         button_box = QHBoxLayout()
         save_btn = QPushButton("Save")
@@ -470,6 +487,150 @@ class SettingsDialog(QDialog):
             self.save_dir_input.setText(dir_path)
 
 
+class BackupManagerDialog(QDialog):
+    def __init__(self, parent=None, save_id=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.save_id = save_id
+        self.setWindowTitle("Backup Manager")
+        self.setWindowIcon(QIcon("img/arathia.ico"))
+        self.setModal(True)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+
+        layout = QVBoxLayout(self)
+
+        # Backup list
+        self.backup_table = QTableWidget()
+        self.backup_table.setColumnCount(2)
+        self.backup_table.setHorizontalHeaderLabels(["Backup Date", "Size"])
+        self.backup_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.backup_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.backup_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.backup_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.backup_table.itemSelectionChanged.connect(self.update_preview)
+        layout.addWidget(self.backup_table)
+
+        # Preview area
+        preview_label = QLabel("Preview:")
+        layout.addWidget(preview_label)
+        self.preview = QTextEdit()
+        self.preview.setReadOnly(True)
+        layout.addWidget(self.preview)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        self.restore_btn = QPushButton("Restore Selected Backup")
+        self.restore_btn.clicked.connect(self.restore_backup)
+        self.restore_btn.setEnabled(False)
+        self.close_btn = QPushButton("Close")
+        self.close_btn.clicked.connect(self.reject)
+
+        button_layout.addWidget(self.restore_btn)
+        button_layout.addWidget(self.close_btn)
+        layout.addLayout(button_layout)
+
+        self.load_backups()
+
+    def load_backups(self):
+        if not self.save_id:
+            return
+
+        backup_dir = os.path.join(self.parent.settings["save_directory"], "backups", self.save_id)
+        if not os.path.exists(backup_dir):
+            return
+
+        backups = []
+        for file in os.listdir(backup_dir):
+            if file.startswith("backup_") and file.endswith(".json.gz"):
+                path = os.path.join(backup_dir, file)
+                timestamp = datetime.fromtimestamp(os.path.getmtime(path))
+                size = os.path.getsize(path)
+                backups.append((timestamp, size, path))
+
+        # Sort backups by timestamp (newest first)
+        backups.sort(reverse=True)
+
+        # Add to table
+        self.backup_table.setRowCount(len(backups))
+        for row, (timestamp, size, path) in enumerate(backups):
+            date_item = QTableWidgetItem(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+            size_item = QTableWidgetItem(f"{size / 1024:.1f} KB")
+            date_item.setData(Qt.ItemDataRole.UserRole, path)
+
+            self.backup_table.setItem(row, 0, date_item)
+            self.backup_table.setItem(row, 1, size_item)
+
+    def clean_data_for_preview(self, data):
+        """Remove metadata and clean up data for preview"""
+        if not isinstance(data, dict):
+            return data
+
+        cleaned = {}
+        for key, value in data.items():
+            # Skip metadata keys
+            if key.startswith("__"):
+                # Keep only title and collapsible for root level
+                if key in ["__title", "__collapsible"]:
+                    cleaned[key] = value
+                continue
+
+            if isinstance(value, dict):
+                # Clean nested dictionaries
+                cleaned_value = self.clean_data_for_preview(value)
+                if cleaned_value:  # Only add if there's content after cleaning
+                    cleaned[key] = cleaned_value
+            else:
+                cleaned[key] = value
+
+        return cleaned
+
+    def update_preview(self):
+        self.preview.clear()
+        selected_items = self.backup_table.selectedItems()
+        if not selected_items:
+            self.restore_btn.setEnabled(False)
+            return
+
+        self.restore_btn.setEnabled(True)
+        path = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                data = json.load(f)
+                # Clean the data before showing preview
+                cleaned_data = self.clean_data_for_preview(data)
+                self.preview.setText(json.dumps(cleaned_data, indent=2))
+        except Exception as e:
+            self.preview.setText(f"Error loading backup: {e}")
+
+    def restore_backup(self):
+        selected_items = self.backup_table.selectedItems()
+        if not selected_items:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Restore",
+            "Are you sure you want to restore this backup? Current changes will be lost.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            path = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            try:
+                with gzip.open(path, "rt", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.parent.loading_list = True
+                    self.parent.clear_list(add_category=False)
+                    self.parent.load_tree_data(data)
+                    self.parent.loading_list = False
+                    self.parent.update_preview()
+                    self.accept()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not restore backup: {e}")
+
+
 class WikiListBuilder(QMainWindow):
     def __init__(self, skip_initial_load=False):
         super().__init__()
@@ -485,6 +646,8 @@ class WikiListBuilder(QMainWindow):
             "save_directory": os.path.abspath("saves"),
             "auto_save_enabled": True,
             "default_collapsible": False,
+            "max_backups": 5,  # New setting for maximum number of backups per save
+            "backup_enabled": True,  # New setting to enable/disable backups
         }
         self.load_settings()
 
@@ -712,6 +875,14 @@ class WikiListBuilder(QMainWindow):
         file_menu.addAction(open_action)
         file_menu.addSeparator()
         file_menu.addAction(save_action)
+
+        # Add Manage Backups action to File menu after Save
+        manage_backups_action = QAction("Manage Backups...", self)
+        manage_backups_action.triggered.connect(self.show_backup_manager)
+        # Insert after Save action
+        file_menu.insertAction(export_action, manage_backups_action)
+        file_menu.insertSeparator(export_action)
+
         file_menu.addAction(export_action)
         file_menu.addAction(import_action)
         file_menu.addSeparator()
@@ -783,9 +954,91 @@ class WikiListBuilder(QMainWindow):
         data = self.tree_to_dict()
         if data:
             save_path = os.path.join(self.settings["save_directory"], f"{self.save_id}.json.gz")
+
+            # Create backup before saving if enabled
+            if self.settings["backup_enabled"]:
+                self.create_backup(save_path, data)
+
+            # Save current state
             with gzip.open(save_path, "wt", encoding="utf-8") as f:
                 json.dump(data, f)
             log(f"Saved list to {save_path}", "INFO")
+
+    def create_backup(self, save_path, data):
+        """Create a backup of the save file"""
+        if not os.path.exists(save_path):
+            return  # Don't backup if original doesn't exist
+
+        backup_dir = os.path.join(self.settings["save_directory"], "backups", self.save_id)
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Check if we have any existing backups
+        existing_backups = []
+        for file in os.listdir(backup_dir):
+            if file.startswith("backup_") and file.endswith(".json.gz"):
+                backup_path = os.path.join(backup_dir, file)
+                existing_backups.append((os.path.getmtime(backup_path), backup_path))
+
+        # Sort backups by modification time (newest first)
+        existing_backups.sort(reverse=True)
+
+        # Compare with most recent backup if it exists
+        if existing_backups:
+            latest_backup_path = existing_backups[0][1]
+            try:
+                with gzip.open(latest_backup_path, "rt", encoding="utf-8") as f:
+                    latest_backup_data = json.load(f)
+                    # Compare data with latest backup
+                    if self.compare_save_data(data, latest_backup_data):
+                        log("Skip backup - content unchanged", "DEBUG")
+                        return
+            except Exception as e:
+                log(f"Error reading latest backup: {e}", "ERROR")
+
+        # Create new backup with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = os.path.join(backup_dir, f"backup_{timestamp}.json.gz")
+
+        try:
+            with gzip.open(backup_path, "wt", encoding="utf-8") as f:
+                json.dump(data, f)
+            log(f"Created backup at {backup_path}", "DEBUG")
+
+            # Clean up old backups
+            self.cleanup_old_backups(backup_dir)
+        except Exception as e:
+            log(f"Failed to create backup: {e}", "ERROR")
+
+    def compare_save_data(self, data1, data2):
+        """Compare two save data structures for equality"""
+        try:
+            # Convert both to JSON strings with sorted keys for consistent comparison
+            json1 = json.dumps(data1, sort_keys=True)
+            json2 = json.dumps(data2, sort_keys=True)
+            return json1 == json2
+        except Exception as e:
+            log(f"Error comparing save data: {e}", "ERROR")
+            return False
+
+    def cleanup_old_backups(self, backup_dir):
+        """Remove old backups exceeding the maximum limit"""
+        try:
+            backups = []
+            for file in os.listdir(backup_dir):
+                if file.startswith("backup_") and file.endswith(".json.gz"):
+                    path = os.path.join(backup_dir, file)
+                    backups.append((os.path.getmtime(path), path))
+
+            # Sort backups by modification time (newest first)
+            backups.sort(reverse=True)
+
+            # Remove old backups exceeding the limit
+            while len(backups) > self.settings["max_backups"]:
+                _, path = backups.pop()
+                os.remove(path)
+                log(f"Removed old backup: {path}", "DEBUG")
+        except Exception as e:
+            log(f"Failed to cleanup backups: {e}", "ERROR")
 
     def on_title_changed(self):
         """Handle title changes"""
@@ -1378,6 +1631,10 @@ class WikiListBuilder(QMainWindow):
         dialog.auto_save_checkbox.setChecked(self.settings["auto_save_enabled"])
         dialog.default_collapsible.setChecked(self.settings["default_collapsible"])
 
+        # Add backup settings fields
+        dialog.backup_enabled.setChecked(self.settings["backup_enabled"])
+        dialog.max_backups_spinner.setValue(self.settings["max_backups"])
+
         if dialog.exec():
             # Save new settings
             old_save_dir = self.settings["save_directory"]
@@ -1443,6 +1700,8 @@ class WikiListBuilder(QMainWindow):
                     "save_directory": new_save_dir,
                     "auto_save_enabled": dialog.auto_save_checkbox.isChecked(),
                     "default_collapsible": dialog.default_collapsible.isChecked(),
+                    "backup_enabled": dialog.backup_enabled.isChecked(),
+                    "max_backups": dialog.max_backups_spinner.value(),
                 }
             )
 
@@ -1464,6 +1723,15 @@ class WikiListBuilder(QMainWindow):
                 json.dump(self.settings, f, indent=4)
         except Exception as e:
             log(f"Error saving settings: {e}", "ERROR")
+
+    def show_backup_manager(self):
+        """Show the backup manager dialog"""
+        if not self.save_id:
+            QMessageBox.information(self, "No Backups", "Save the list first to create backups.")
+            return
+
+        dialog = BackupManagerDialog(self, self.save_id)
+        dialog.exec()
 
 
 if __name__ == "__main__":
