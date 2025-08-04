@@ -53,7 +53,9 @@ class CharacterListBuilder:
         }
 
         category_map = CategoryMap(categories, category_titles)
-        self.generic_builder = GenericListBuilder("List of Characters", "Characters", category_map)
+        self.generic_builder = GenericListBuilder(
+            "List of Characters", "Characters", category_map
+        )
 
     def build(self) -> str:
         return self.generic_builder.build()
@@ -83,7 +85,30 @@ class CountryListBuilder:
         }
 
         category_map = CategoryMap(categories, category_titles)
-        self.generic_builder = GenericListBuilder("List of Countries", "Countries", category_map)
+        self.generic_builder = GenericListBuilder(
+            "List of Countries", "Countries", category_map
+        )
+
+    def build(self) -> str:
+        return self.generic_builder.build()
+
+
+class CityListBuilder:
+    def __init__(self):
+        categories = {
+            "Capital Cities": {},
+            "Grandholds": {},
+            "Greast Cities": {},
+            "Cities": {},
+            "Towns": {},
+            "Villages": {},
+            "Hamlets": {},
+        }
+
+        category_map = CategoryMap(categories)
+        self.generic_builder = GenericListBuilder(
+            "List of Cities", "Cities", category_map
+        )
 
     def build(self) -> str:
         return self.generic_builder.build()
@@ -110,7 +135,9 @@ class OathListBuilder:
         }
 
         category_map = CategoryMap(categories, category_titles)
-        self.generic_builder = GenericListBuilder("List of [[Oaths]]", "Oaths", category_map)
+        self.generic_builder = GenericListBuilder(
+            "List of [[Oaths]]", "Oaths", category_map
+        )
 
     def build(self) -> str:
         return self.generic_builder.build()
@@ -164,7 +191,9 @@ class SpeciesListBuilder:
         }
 
         category_map = CategoryMap(categories, category_titles)
-        self.generic_builder = GenericListBuilder("List of Species", "Species", category_map)
+        self.generic_builder = GenericListBuilder(
+            "List of Species", "Species", category_map
+        )
 
     def build(self) -> str:
         return self.generic_builder.build()

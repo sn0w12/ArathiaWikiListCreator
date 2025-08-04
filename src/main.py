@@ -1,6 +1,7 @@
 from list_builder import (
     CharacterListBuilder,
     CountryListBuilder,
+    CityListBuilder,
     OathListBuilder,
     SpeciesListBuilder,
 )
@@ -11,6 +12,7 @@ def main():
     builders = [
         CharacterListBuilder,
         CountryListBuilder,
+        CityListBuilder,
         OathListBuilder,
         SpeciesListBuilder,
     ]
